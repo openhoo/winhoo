@@ -1,0 +1,21 @@
+Port 22
+AddressFamily inet
+ListenAddress 0.0.0.0
+HostKey C:/ProgramData/ssh/ssh_host_ed25519_key
+HostKey C:/ProgramData/ssh/ssh_host_rsa_key
+AuthorizedKeysFile C:/ProgramData/ssh/administrators_authorized_keys
+AllowUsers winhoo
+AuthenticationMethods publickey
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitEmptyPasswords no
+StrictModes yes
+AllowAgentForwarding no
+AllowTcpForwarding no
+PermitTunnel no
+X11Forwarding no
+PrintMotd no
+SyslogFacility LOCAL0
+LogLevel VERBOSE
+Subsystem sftp "C:/Program Files/OpenSSH/sftp-server.exe"

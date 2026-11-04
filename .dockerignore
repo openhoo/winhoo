@@ -1,0 +1,7 @@
+*
+!Dockerfile
+!container/
+!container/**
+!examples/
+!examples/Dockerfile
+!examples/smoke.ps1

@@ -1,0 +1,25 @@
+{
+  "checkedAt": "2026-11-04",
+  "windowsBase": {
+    "image": "mcr.microsoft.com/windows/servercore:ltsc2022@sha256:b52799a67fa596d4bddcd82ae1dab0077a84767fbc33c7342b72b53ecc71ad09",
+    "osVersion": "10.0.20348.5773",
+    "architecture": "amd64"
+  },
+  "openSsh": {
+    "version": "10.4.0.0p1-Preview",
+    "url": "https://github.com/PowerShell/Win32-OpenSSH/releases/download/10.4.0.0p1-Preview/OpenSSH-Win64.zip",
+    "sha256": "b67ff8becd203502190ec42ac7787c24c2cd3325ed7700485fe7a1c83d2a7957"
+  },
+  "dockerEngine": {
+    "version": "29.9.3",
+    "url": "https://download.docker.com/win/static/stable/x86_64/docker-29.9.3.zip",
+    "sha256": "7c4ff7bbb31579046cd34dd8b91f7cbd3ab3482a1a85330170be726ef792d751"
+  },
+  "dockerDesktop": {
+    "version": "4.98.0",
+    "build": "245422",
+    "url": "https://desktop.docker.com/win/main/amd64/245422/Docker%20Desktop%20Installer.exe",
+    "sha256": "cd6273d9eaa4f07fa7593fc6813d37e1004381cebc3f26047a2554fa5db24388",
+    "checksumSource": "https://desktop.docker.com/win/main/amd64/245422/checksums.txt"
+  }
+}

@@ -1,0 +1,16 @@
+# Reused from OpenHoo hoosaidthat/oracle/windows-nvda/Dockerfile.arm64.
+# Native ARM host tools run the unchanged x64 Windows/QEMU configuration.
+# Copy only architecture-independent runtime scripts, assets and UEFI firmware
+# from the pinned x64 image; install a native x64-system emulator on ARM.
+FROM --platform=linux/amd64 docker.io/dockurr/windows@sha256:32cc92715a6c5dc1f63142d3be11059279d64d0faa7519618a07290b3076f9f2 AS x64
+FROM --platform=linux/arm64 docker.io/dockurr/windows@sha256:25f95472f8370d8e48cc7f86d7dbf222114cf84b671f054ea74b80a5350b44ef
+ARG QEMU_VERSION=1:10.0.13+ds-0+deb13u1
+RUN apt-get update \
+    && apt-get install -y --allow-downgrades --no-install-recommends \
+        qemu-system-x86=${QEMU_VERSION} qemu-system-common=${QEMU_VERSION} \
+        qemu-system-data=${QEMU_VERSION} qemu-utils=${QEMU_VERSION} \
+        qemu-system-arm- qemu-block-extra- \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=x64 /run/ /run/
+COPY --from=x64 /usr/share/OVMF/ /usr/share/OVMF/
+ENV PLATFORM=x64 MACHINE=q35 KVM=N NETWORK=slirp
