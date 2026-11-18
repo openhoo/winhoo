@@ -130,3 +130,14 @@ class DesktopTests(unittest.TestCase):
                     with desktop.operation_lock(self.root,op): pass
         with desktop.operation_lock(self.root,'down'),self.assertRaisesRegex(ValueError,'lifecycle'):
             with desktop.operation_lock(self.root,'inspect'): pass
+
+    def test_switch_to_guest_local_testing_preserves_ssh_and_requires_stopped_vm(self):
+        cfg = {**self.state,'sshPort':2226,'ports':[[2226,22],[3002,3000]]}
+        desktop.save(self.root/'desktop.json',cfg)
+        with patch.object(desktop,'current',return_value='running'),self.assertRaisesRegex(ValueError,'Shut down'):
+            desktop.set_forwards(self.root,cfg,[])
+        self.assertEqual(json.loads((self.root/'desktop.json').read_text()),cfg)
+        with patch.object(desktop,'current',return_value='off'):
+            desktop.set_forwards(self.root,cfg,[])
+        saved=json.loads((self.root/'desktop.json').read_text())
+        self.assertEqual(saved,{**cfg,'ports':[[2226,22]]})

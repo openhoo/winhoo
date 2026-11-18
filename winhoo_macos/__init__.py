@@ -97,6 +97,14 @@ def forward_ports(pairs, ssh):
     return result
 
 
+def set_forwards(d, state, pairs):
+    if current(d,state) != 'off':
+        raise ValueError('Shut down this desktop before changing its port forwards')
+    state = {**state, 'ports': forward_ports(pairs,state['sshPort'])}
+    save(d/'desktop.json',state)
+    return {'uuid':state['uuid'],'forwards':state['ports']}
+
+
 def create(d, args):
     firmware = Path(doctor()['firmware'])
     if not re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]{0,18}', args.account):
@@ -410,7 +418,7 @@ def arguments(parser):
     p.add_argument('--esd', type=Path, required=True)
     p.add_argument('--sha256', required=True)
     p.add_argument('--output', type=Path, required=True)
-    for op in ('create','up','wait','status','inspect','screenshot','exec','put','get','down'):
+    for op in ('create','forwards','up','wait','status','inspect','screenshot','exec','put','get','down'):
         p = commands.add_parser(op)
         p.add_argument('directory', type=Path, help='Private retained VM directory')
         if op == 'create':
@@ -419,6 +427,10 @@ def arguments(parser):
             p.add_argument('--account', default='WinHooTest')
             p.add_argument('--ssh-port', type=int, default=2226)
             p.add_argument('--forward', action='append', default=[], metavar='HOST:GUEST')
+        if op == 'forwards':
+            flags = p.add_mutually_exclusive_group(required=True)
+            flags.add_argument('--only-ssh',action='store_true',help='Remove all optional host forwards')
+            flags.add_argument('--forward',action='append',metavar='HOST:GUEST',help='Replace the optional forward list')
         if op in ('exec','put','get','wait','inspect','down'):
             p.add_argument('--timeout', type=int, default=900 if op=='wait' else 120)
         if op == 'exec':
@@ -465,6 +477,8 @@ def dispatch(a):
         return {'path': str(d / 'screen.ppm')}
     with operation_lock(d,op):
         s = read_state(d)
+        if op == 'forwards':
+            return set_forwards(d,s,a.forward or [])
         if op == 'up':
             return up(d,s)
         if op == 'down':
