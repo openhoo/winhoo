@@ -125,3 +125,15 @@ and exclusive guest operation locks during a later NVDA matrix on the Mac.
 The running controller was unchanged. A separate macOS test holds the
 exclusive shutdown lock and verifies the query returns without consulting
 QMP, the installation media or a guest receipt (74 host tests passed).
+
+With a host-side fixture holding the shutdown lock and accepting a monitor
+connection without sending the QMP greeting, full status timed out after
+4.07 s. The installed `--locks-only` controller reported the exclusive lock
+in 0.057 s and did not queue a second connection. This measures the host
+observation, not Windows shutdown time.
+
+The source checkout and a freshly installed wheel returned the same
+`desktop identity` for all 11 shipped desktop and launcher files. Changing
+only the installed foreground PowerShell script in a disposable copy made
+`--expect-sha256` exit 1. The file list identified that one difference.
+No VM was started for the package comparison; 75 macOS host tests passed.

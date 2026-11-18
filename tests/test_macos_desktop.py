@@ -22,6 +22,31 @@ class DesktopTests(unittest.TestCase):
         self.owner = str(uuid.uuid4())
         self.state = {'uuid': self.owner, 'account': 'TestUser'}
 
+    def test_identity_matches_relocated_controller_and_rejects_guest_script_drift(self):
+        fixture = self.root / 'original'
+        moved = self.root / 'relocated'
+        for install in (fixture, moved):
+            package = install / 'winhoo_macos'
+            package.mkdir(parents=True)
+            (install / 'winhoo.py').write_bytes(b'host entry')
+            (package / '__init__.py').write_bytes(b'controller')
+            (package / 'foreground.ps1').write_bytes(b'guest probe')
+        (moved / 'winhoo_macos' / '__pycache__').mkdir()
+        (moved / 'winhoo_macos' / 'notes.txt').write_text('not installed by the wheel')
+
+        def identity(install, expected=None):
+            return desktop.controller_identity(install / 'winhoo.py', install / 'winhoo_macos', expected)
+
+        start = identity(fixture)
+        self.assertEqual(identity(moved, start['sha256']), start)
+        (moved / 'winhoo_macos' / 'foreground.ps1').write_bytes(b'changed guest probe')
+        drifted = identity(moved)
+        self.assertNotEqual(start['sha256'], drifted['sha256'])
+        self.assertEqual([name for name in start['files'] if start['files'][name] != drifted['files'][name]],
+                         ['winhoo_macos/foreground.ps1'])
+        with self.assertRaisesRegex(ValueError, 'does not match'):
+            identity(moved, start['sha256'])
+
     def test_duplicate_forwards_and_nonloopback_specs_rejected(self):
         for port in ('2226:22', '0.0.0.0:3456:80', '80:80', '4000:65536'):
             with self.subTest(port=port), self.assertRaises(ValueError):
