@@ -66,3 +66,12 @@ On a local M4 Max (macOS 26.6.2, QEMU 11.1.3, HVF), the controller deployed Wind
 `python -m unittest discover -s tests -v` includes host regressions for the per-instance monitor, ownership changes, transient FAT reads, cached media corruption and early QMP disconnect. Host tests do not exercise the Windows installer. Do not publish the private instance directory or the unattended installer as validation artifacts.
 
 The guest-local consumer subsequently passed its core block (four selected cases including NVDA speech and braille) and the previously failing actions-03 block (two selected cases). These were separate attempts. WinHoo retrieved each guest's reports over pinned SSH and confirmed Windows shutdown. A live read-only inspection during the second attempt reported the active Public profile, Windows script policy and the listening processes without interrupting the test. Removing the two old application forwards on the stopped guest preserved its disk, UUID and SSH port. The host suite now contains 56 tests.
+
+A later inspection over a second authenticated SSH connection ran during a
+native GUI matrix. On the local Windows 11 ARM64 guest it reported physical
+console session 1, the dedicated local account, connection `active` and lock
+state `unlocked`. The two consumer application ports were bound to loopback.
+The host regressions replay a locked console with the correct username, a
+changed domain, missing state and a subsequent unlock. They also check the
+45-second cutoff and transport-only recovery. The actual VM remained unlocked
+during the observation.
