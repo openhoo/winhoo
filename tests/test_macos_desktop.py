@@ -227,6 +227,44 @@ class DesktopTests(unittest.TestCase):
         attest.assert_called_once_with(self.root,self.state,20,interactive=False)
         self.assertFalse(target.exists())
 
+    def test_collect_result_directory_attests_before_archiving_and_publishes_after_shutdown(self):
+        target = self.root/'recovered.zip'
+        desktop.save(self.root/'installed.json', {'owner':self.owner})
+        desktop.save(self.root/'shutdown.json', {'uuid':self.owner,'shutdown':'guest-confirmed'})
+        events = []
+        def record(label, result):
+            def call(*args, **kwargs):
+                events.append(label)
+                self.assertFalse(target.exists())
+                if label == 'wait': self.assertFalse(kwargs['interactive'])
+                return result
+            return call
+        original = self.root/'guest-copy'
+        original.write_bytes(b'original trace')
+        identity = {'owner':self.owner,'name':'traces.zip','bytes':original.stat().st_size,'sha256':media.digest(original)}
+        def download(args, **kwargs):
+            events.append('download')
+            Path(args[-1]).write_bytes(original.read_bytes())
+        with patch.object(desktop,'current',return_value='off'), \
+             patch.object(desktop,'up',side_effect=record('up',{'state':'running','uuid':self.owner})), \
+             patch.object(desktop,'wait',side_effect=record('wait',{})), \
+             patch.object(desktop,'archive_results',side_effect=record('archive',identity)), \
+             patch.object(desktop,'ssh_args',return_value=[]),patch.object(desktop.subprocess,'run',side_effect=download), \
+             patch.object(desktop,'down',side_effect=record('down',{'state':'off','uuid':self.owner,'shutdown':'guest-confirmed'})):
+            result=desktop.collect(self.root,self.state,'traces.zip',target,30,source=r'C:\ProgramData\Example\results')
+        self.assertEqual(events,['up','wait','archive','download','down'])
+        self.assertEqual(result['archive'],identity)
+        self.assertEqual(target.read_bytes(),original.read_bytes())
+
+    def test_bad_download_never_publishes_an_archive(self):
+        target=self.root/'downloaded.zip'
+        for size in (4, 17):
+            with self.subTest(size=size),patch.object(desktop,'ssh_args',return_value=[]), \
+                 patch.object(desktop.subprocess,'run',side_effect=lambda args,**kwargs:Path(args[-1]).write_bytes(b'bad!')), \
+                 self.assertRaisesRegex(ValueError,'does not match'):
+                desktop.get_file(self.root,self.state,'result.zip',target,5,archive={'bytes':size,'sha256':'0'*64})
+            self.assertFalse(target.exists())
+
     def test_new_boot_archives_shutdown_proof_without_authorizing_a_later_crash(self):
         receipt={'uuid':self.owner,'shutdown':'guest-confirmed','timeUnix':4}
         desktop.save(self.root/'shutdown.json',receipt)
