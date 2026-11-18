@@ -147,3 +147,20 @@ PID and session. It opens no window, sends no input, and does not read window
 titles. It can run while a test owns the guest. A different PID, a locked
 desktop, a session switch or a missing foreground window fails the check.
 This describes the instant sampled; another application can take focus later.
+
+### Checking a native text or braille movement
+
+Give the command a starting position with a distinct target on either side.
+On the retained Windows 11 desktop, Chromium and NVDA exposed a textarea
+containing three newline-separated strings as one reading unit. Moving to
+the previous line left the caret unchanged. Sometimes the cursor blink
+redrew the same braille frame, so checking for any of those strings could
+pass even when the command had done nothing.
+
+In the working probe, three editable block elements held “Alpha beta”,
+“Gamma delta” and “Omega last”. The selection started four characters into
+the middle block. Moving backward produced only “Alpha beta”; moving forward
+from the same start produced only “Omega last”. In both cases the editable
+caret was at offset zero in the target block. Capture the fresh display
+response and the resulting selection separately. A focused browser process
+alone establishes neither observation.
