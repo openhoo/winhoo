@@ -3,6 +3,7 @@ from contextlib import contextmanager
 import json
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch, Mock
@@ -220,6 +221,25 @@ class DesktopTests(unittest.TestCase):
         with patch.object(desktop.subprocess,'run',side_effect=disconnect), self.assertRaises(subprocess.TimeoutExpired):
             desktop.get_file(self.root,self.state,'summary.zip',dest,1)
         self.assertFalse(dest.exists())
+
+    @unittest.skipUnless(sys.platform == 'darwin', 'Darwin kernel lock inspection')
+    def test_status_observes_controller_locks_without_acquiring_or_creating_them(self):
+        args = winhoo.parser().parse_args(['desktop', 'status', str(self.root)])
+        with patch.object(desktop, 'read_state', return_value={**self.state, 'ports': []}), \
+             patch.object(desktop, 'current', return_value='running'), \
+             patch.object(desktop, 'phase', return_value='image-applied'):
+            def observed():
+                return desktop.dispatch(args)['controllerLocks']
+            free = {'lifecycle': 'free', 'guestOperation': 'free'}
+            self.assertEqual(observed(), free)
+            self.assertFalse((self.root/'lifecycle.lock').exists())
+            with desktop.operation_lock(self.root, 'exec'):
+                self.assertEqual(observed(), {'lifecycle': 'shared', 'guestOperation': 'exclusive'})
+            with desktop.operation_lock(self.root, 'inspect'):
+                self.assertEqual(observed(), {'lifecycle': 'shared', 'guestOperation': 'free'})
+            with desktop.operation_lock(self.root, 'down'):
+                self.assertEqual(observed(), {'lifecycle': 'exclusive', 'guestOperation': 'free'})
+            self.assertEqual(observed(), free)
 
     def test_foreground_command_allows_observation_but_blocks_writes_and_poweroff(self):
         with desktop.operation_lock(self.root,'exec'):

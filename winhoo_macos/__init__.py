@@ -11,6 +11,7 @@ import re
 import shutil
 import socket
 import stat
+import struct
 import subprocess
 import sys
 import tempfile
@@ -67,6 +68,35 @@ def lifecycle(directory, *, shared=False, filename='lifecycle.lock'):
         except BlockingIOError:
             raise ValueError('Another desktop lifecycle operation owns this instance') from None
         yield
+
+
+def observed_lock(path):
+    """Inspect an existing flock on Darwin without taking a competing lock."""
+    if sys.platform != 'darwin':
+        return 'unavailable'
+    import fcntl
+    # Darwin <sys/fcntl.h>: off_t start, off_t len, pid_t pid, short type/whence.
+    layout = struct.Struct('@qqihh')
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return 'free'
+    except OSError:
+        return 'unavailable'
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return 'unavailable'
+        # Query a hypothetical writer: it conflicts with both shared and
+        # exclusive locks. F_GETLK never acquires it, even on an idle VM.
+        request = layout.pack(0, 0, 0, fcntl.F_WRLCK, os.SEEK_SET)
+        reply = fcntl.fcntl(fd, fcntl.F_GETLK, request)
+        kind = layout.unpack(reply)[3]
+        return {fcntl.F_UNLCK: 'free', fcntl.F_RDLCK: 'shared',
+                fcntl.F_WRLCK: 'exclusive'}.get(kind, 'unavailable')
+    except OSError:
+        return 'unavailable'
+    finally:
+        os.close(fd)
 
 
 @contextmanager
@@ -605,7 +635,9 @@ def dispatch(a):
                 raise
             stage = 'receipt-unavailable'
         return {'uuid': s['uuid'], 'state': state, 'installed': owned_receipt(d,'installed.json','owner',s),
-                'deployment': stage, 'forwards': s['ports']}
+                'deployment': stage, 'forwards': s['ports'],
+                'controllerLocks': {'lifecycle': observed_lock(d/'lifecycle.lock'),
+                                    'guestOperation': observed_lock(d/'guest-operation.lock')}}
     if op == 'screenshot':
         s = read_state(d)
         with Monitor(d, s) as q:

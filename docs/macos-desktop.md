@@ -51,6 +51,22 @@ winhoo desktop down "$root/test"
 
 `status` returns the UUID, execution state, host/guest port pairs and installation phase. While a running WinPE owns the FAT receipt disk it may briefly return `receipt-unavailable`; a different owner is always an error. `wait` returns only after keyed SSH, the guest owner UUID and ARM64 architecture agree and the dedicated local account owns the active, unlocked physical console. A connected SSH service or a cached username is insufficient. During logon it waits for Windows to identify that console. If the same active console stays locked for 45 seconds of observations, it stops early with `console-locked`. Sign in normally on the test desktop before retrying. `inspect` reads Windows build, console user, available memory, playback endpoints and the PID listening on each declared guest port. Its `consoleSession` reports the live session ID, account, connection and lock state. It also reports active network profiles and matching inbound program block rules. A Windows service listening in the guest can still be unreachable through a host forward; inspect both sides before changing an application. Guest-local tests can return their results with `get`, which publishes a complete regular file and refuses to overwrite existing evidence. A GUI launcher can exit after handing off to a different process (observed with x64 Chrome on ARM64); have the consumer track the live owning process before relaunching. `inspect` includes the effective Windows PowerShell script policy and each policy scope. On the stock Windows client all scopes can be undefined while local script files are restricted. Report a dispatcher policy error immediately and leave user, machine and Group Policy settings intact. SSH commands run in a service session. Desktop applications must be started in the signed-in user's interactive session. During a long `exec`, you can still use `inspect` or retrieve a finished report with `get`. Another command, upload, or power transition is refused while the first command owns the guest. Keep GUI tests serialized; one guest has one foreground window. Inspect an ambiguous command timeout before submitting it again.
 
+### Checking whether a long command still owns the guest
+
+Run `winhoo desktop status "$root/test"` from a second terminal. Its
+`controllerLocks` field reads two host kernel locks without opening an SSH
+session or competing with the controller. An `exclusive` guest operation
+with a `shared` lifecycle lock means that an `exec`, upload or archive
+holds the guest; another writer or power transition would be refused.
+A shared lifecycle lock by itself can be an observer. An exclusive
+lifecycle lock can indicate startup, shutdown or recovery. Missing or
+unlocked lock files report `free`; an unreadable lock reports `unavailable`.
+
+These are observations at the instant each lock was read. They do not
+establish guest progress, successful completion, or permission to retry a
+timed-out command. For progress, read the original run log; for completion,
+check its result and shutdown receipt.
+
 ## Installation and recovery
 
 - WinPE applies Windows with DISM and installs the UEFI boot files with BCDBoot. Before partitioning, the installer compares nonempty markers on two separate volumes and requires one empty QEMU NVMe. It does not clear or repartition a retained Windows disk. The pinned WinPE has `find.exe`, but lacks `findstr.exe`.
