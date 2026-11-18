@@ -241,6 +241,22 @@ class DesktopTests(unittest.TestCase):
                 self.assertEqual(observed(), {'lifecycle': 'exclusive', 'guestOperation': 'free'})
             self.assertEqual(observed(), free)
 
+    @unittest.skipUnless(sys.platform == 'darwin', 'requires Darwin lock observation')
+    def test_locks_only_observes_shutdown_even_when_the_monitor_cannot_reply(self):
+        desktop.save(self.root / 'desktop.json', {
+            **self.state, 'schema': 'winhoo.macos-desktop/1', 'directory': str(self.root),
+        })
+        args = winhoo.parser().parse_args(['desktop', 'status', str(self.root), '--locks-only'])
+        with desktop.operation_lock(self.root, 'down'), \
+             patch.object(desktop, 'Monitor', side_effect=TimeoutError('occupied')) as monitor, \
+             patch.object(desktop, 'phase', side_effect=AssertionError('read guest media')), \
+             patch.object(desktop, 'owned_receipt', side_effect=AssertionError('read guest receipt')):
+            self.assertEqual(desktop.dispatch(args), {
+                'uuid': self.owner,
+                'controllerLocks': {'lifecycle': 'exclusive', 'guestOperation': 'free'},
+            })
+            monitor.assert_not_called()
+
     def test_foreground_command_allows_observation_but_blocks_writes_and_poweroff(self):
         with desktop.operation_lock(self.root,'exec'):
             for op in ('inspect','get','foreground'):

@@ -99,6 +99,11 @@ def observed_lock(path):
         os.close(fd)
 
 
+def controller_locks(directory):
+    return {'lifecycle': observed_lock(directory / 'lifecycle.lock'),
+            'guestOperation': observed_lock(directory / 'guest-operation.lock')}
+
+
 @contextmanager
 def operation_lock(directory, op):
     # A long test may write guest state; allow observation, but never another
@@ -591,6 +596,9 @@ def arguments(parser):
         if op == 'inspect':
             p.add_argument('--require-loopback',type=int,metavar='GUEST_PORT',action='append',default=[],
                            help='Require this guest service to listen only on loopback; repeat for other ports')
+        if op == 'status':
+            p.add_argument('--locks-only', action='store_true',
+                           help='Read host controller locks without contacting QEMU or Windows')
         if op == 'foreground':
             p.add_argument('--expect-pid', type=int, help='Fail if the foreground window belongs to a different Windows process')
         if op == 'exec':
@@ -627,6 +635,8 @@ def dispatch(a):
         return create(d, a)
     if op == 'status':
         s = read_state(d)
+        if a.locks_only:
+            return {'uuid': s['uuid'], 'controllerLocks': controller_locks(d)}
         state = current(d,s)
         try:
             stage = phase(d,s)
@@ -636,8 +646,7 @@ def dispatch(a):
             stage = 'receipt-unavailable'
         return {'uuid': s['uuid'], 'state': state, 'installed': owned_receipt(d,'installed.json','owner',s),
                 'deployment': stage, 'forwards': s['ports'],
-                'controllerLocks': {'lifecycle': observed_lock(d/'lifecycle.lock'),
-                                    'guestOperation': observed_lock(d/'guest-operation.lock')}}
+                'controllerLocks': controller_locks(d)}
     if op == 'screenshot':
         s = read_state(d)
         with Monitor(d, s) as q:
