@@ -112,3 +112,10 @@ The Windows CI job compiles and executes the shipped probe and verifies the
 GUI PE subsystem. The host suite checks stale and locked sessions, wrong PIDs,
 and ambiguous SSH timeouts (72 tests). An installed wheel contains both the
 dispatch script and the C# source.
+
+During a real NVDA matrix on the retained Windows 11 ARM64 guest, a second
+host process ran the new `desktop status` against the existing controller.
+It reported a running VM, a shared lifecycle lock and an exclusive guest
+operation lock. No guest command or controller upgrade was needed. The
+macOS suite (73 tests) also checks idle, observation-only and power-transition
+states against real kernel locks and that status creates no lock files.
