@@ -328,10 +328,15 @@ def guest(d, s, script, *, timeout, capture):
                           encoding='utf-8', errors='replace', input=script, timeout=timeout)
 
 
-ATTEST = r"""$ErrorActionPreference='Stop'
+CONSOLE = Path(__file__).with_name('console-state.ps1').read_text(encoding='utf-8') + '\n'
+IDENTITY = r"""$ErrorActionPreference='Stop'
 $o=Get-Content C:\ProgramData\WinHoo\owner.json -Raw | ConvertFrom-Json
-$c=Get-CimInstance Win32_ComputerSystem
-@{owner=$o.uuid; account=$env:USERNAME; console=$c.UserName; build=[Environment]::OSVersion.Version.Build; arch=$env:PROCESSOR_ARCHITECTURE} | ConvertTo-Json -Compress"""
+$who=@{owner=$o.uuid; account=$env:USERNAME; computer=$env:COMPUTERNAME; build=[Environment]::OSVersion.Version.Build; arch=$env:PROCESSOR_ARCHITECTURE}
+"""
+ATTEST = CONSOLE + IDENTITY + r"""$console=Get-WinHooConsole
+$who.console=$console.account; $who.consoleSession=$console
+$who | ConvertTo-Json -Compress"""
+ATTEST_TRANSPORT = IDENTITY + '$who | ConvertTo-Json -Compress'
 
 
 def check_loopback(listeners, ports):
@@ -348,9 +353,9 @@ def inspect_guest(d, s, timeout, required=()):
         raise ValueError('Specify at most 16 valid guest TCP ports')
     # Query Windows itself; this also works with only SSH forwarded on the host.
     ports = ','.join(map(str,sorted({int(g) for _,g in s['ports']} | set(required))))
-    script = r"""
+    script = CONSOLE + r"""
 $owner = Get-Content C:\ProgramData\WinHoo\owner.json -Raw | ConvertFrom-Json
-$sys = Get-CimInstance Win32_ComputerSystem
+$console = Get-WinHooConsole
 $os = Get-CimInstance Win32_OperatingSystem
 $audio = @(Get-PnpDevice -PresentOnly -Class AudioEndpoint -ErrorAction SilentlyContinue | Select-Object Status,FriendlyName)
 $listeners = @(Get-NetTCPConnection -State Listen | Where-Object { $_.LocalPort -in @(PORTS) } | Select-Object LocalAddress,LocalPort,OwningProcess)
@@ -361,7 +366,7 @@ $blocks = @(Get-NetFirewallRule -PolicyStore ActiveStore -Enabled True -Directio
     $r=$_; $p=($r | Get-NetFirewallApplicationFilter).Program
     if ($p -and $p -in $programs) { @{program=$p;profile=[string]$r.Profile;rule=$r.DisplayName} }
 })
-@{owner=$owner.uuid;account=$env:USERNAME;console=$sys.UserName;build=$os.BuildNumber;arch=$env:PROCESSOR_ARCHITECTURE;
+@{owner=$owner.uuid;account=$env:USERNAME;computer=$env:COMPUTERNAME;console=$console.account;consoleSession=$console;build=$os.BuildNumber;arch=$env:PROCESSOR_ARCHITECTURE;
   freeMemoryMiB=[int]($os.FreePhysicalMemory/1024);audio=$audio;listeners=$listeners;
   networkProfiles=$profiles;inboundProgramBlocks=$blocks;
   scriptPolicy=[string](Get-ExecutionPolicy);scriptPolicyScopes=$policies} | ConvertTo-Json -Depth 4 -Compress
@@ -386,14 +391,31 @@ def transport_reason(error):
     return 'SSH command did not complete'
 
 
-def wait(d, s, timeout):
+def console_state(info, account):
+    session = info.get('consoleSession') or {}
+    session_id = session.get('id')
+    if type(session_id) is not int or not 0 < session_id < 0xffffffff or session.get('connection') != 'active':
+        return 'Windows has no confirmed active physical console'
+    if session.get('lock') == 'locked':
+        return 'console-locked'
+    machine = info.get('computer')
+    if not machine or (info.get('console') or '').casefold() != (machine + '\\' + account).casefold():
+        return 'The dedicated local account is not on the physical console'
+    if session.get('lock') != 'unlocked':
+        return 'Windows console lock state is unknown'
+    return 'ready'
+
+
+def wait(d, s, timeout, *, interactive=True):
     until = time.monotonic() + timeout
     last = 'Waiting for authenticated guest control'
+    locked = None
     while time.monotonic() < until:
         running = current(d, s)
         try:
             stage = phase(d, s)
         except ReceiptUnavailable:
+            locked = None
             if running != 'running':
                 raise
             time.sleep(.5)
@@ -409,10 +431,12 @@ def wait(d, s, timeout):
         if running != 'running':
             raise ValueError(f'Guest is {running}; installation phase: {stage}')
         if stage != 'image-applied':
+            locked = None
             time.sleep(1)
             continue
         try:
-            result = guest(d, s, ATTEST, timeout=min(12, max(.1, until-time.monotonic())), capture=True)
+            result = guest(d, s, ATTEST if interactive else ATTEST_TRANSPORT,
+                           timeout=min(12, max(.1, until-time.monotonic())), capture=True)
         except subprocess.TimeoutExpired:
             result = None
             last = 'Read-only guest attestation timed out'
@@ -420,15 +444,28 @@ def wait(d, s, timeout):
             info = json.loads(result.stdout.strip())
             if info.get('owner') != s['uuid'] or info.get('account', '').lower() != s['account'].lower():
                 raise ValueError('Authenticated guest identity mismatch')
-            if (info.get('console') or '').split('\\')[-1].lower() == s['account'].lower() and info.get('arch') == 'ARM64':
+            if info.get('arch') != 'ARM64':
+                raise ValueError('Unexpected guest architecture')
+            if not interactive:
+                return info  # File recovery needs keyed SSH, not an interactive desktop.
+            last = console_state(info, s['account'])
+            if last == 'ready':
                 save(d / 'installed.json', info)
                 return info
-            last = 'Windows is reachable; the dedicated account has no active console'
+            if last == 'console-locked':
+                identity = (info['consoleSession']['id'], info.get('console'))
+                now = time.monotonic()
+                if locked is None or locked[0] != identity:
+                    locked = (identity, now)
+                elif now - locked[1] >= 45:
+                    raise ValueError('console-locked: Windows is reachable but the physical console remains locked; sign in to the dedicated local account')
         elif result and ('HOST IDENTIFICATION HAS CHANGED' in result.stderr or 'Permission denied' in result.stderr):
             raise ValueError('Guest key or login rejected; inspect this owned instance')
         elif result:
             last = transport_reason(result.stderr)
-        time.sleep(min(2, max(0, until-time.monotonic())))
+        if last != 'console-locked':
+            locked = None
+        time.sleep(min(5 if locked else 2, max(0, until-time.monotonic())))
     raise ValueError(last + '; see status, screenshot, and the guest installation log')
 
 
@@ -592,7 +629,7 @@ def collect(d, state, name, destination, timeout):
         if active.get('state') != 'running' or active.get('uuid') != state['uuid']:
             raise ValueError('Could not acquire the stopped desktop for collection')
         try:
-            wait(d,state,timeout)
+            wait(d,state,timeout,interactive=False)
             get_file(d,state,name,staged,timeout)
         finally:
             # down() revalidates the QMP identity; no forced poweroff on failure.

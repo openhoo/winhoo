@@ -34,7 +34,7 @@ class DesktopTests(unittest.TestCase):
             desktop.owned_receipt(self.root,receipt.name,'owner',self.state)
 
     def test_wait_retries_only_a_temporarily_unavailable_phase(self):
-        live = {'owner':self.owner,'account':'TESTUSER','arch':'ARM64','console':r'WIN\TestUser'}
+        live = self.live_console(lock='unlocked')
         with patch.object(desktop,'current',return_value='running'), \
              patch.object(desktop,'phase',side_effect=[desktop.ReceiptUnavailable(), 'image-applied']), \
              patch.object(desktop.time,'sleep'), \
@@ -42,6 +42,49 @@ class DesktopTests(unittest.TestCase):
             self.assertEqual(desktop.wait(self.root,self.state,30), live)
             guest.assert_called_once()
         self.assertEqual(json.loads((self.root/'installed.json').read_text()),live)
+
+    def live_console(self, *, lock, connection='active', account=r'WIN\TestUser', session=1):
+        return {'owner':self.owner, 'account':'TESTUSER', 'computer':'WIN', 'arch':'ARM64',
+                'console':account, 'consoleSession':{'id':session, 'lock':lock, 'connection':connection}}
+
+    def test_wait_requires_the_owned_unlocked_physical_console(self):
+        ready = self.live_console(lock='unlocked')
+        unavailable = [
+            self.live_console(lock='locked'), self.live_console(lock='unknown'),
+            self.live_console(lock='unlocked', connection='disconnected'),
+            self.live_console(lock='unlocked', account=r'OTHER\TestUser'),
+            self.live_console(lock='unlocked', session=None),
+            self.live_console(lock='unlocked', session=0),
+            {k:v for k,v in ready.items() if k != 'consoleSession'},
+        ]
+        for pending in unavailable:
+            with self.subTest(pending=pending), patch.object(desktop,'current',return_value='running'), \
+                 patch.object(desktop,'phase',return_value='image-applied'), patch.object(desktop.time,'sleep'), \
+                 patch.object(desktop,'guest',side_effect=[subprocess.CompletedProcess([],0,json.dumps(v),'')
+                                                          for v in (pending,ready)]) as observe:
+                self.assertEqual(desktop.wait(self.root,self.state,30),ready)
+                self.assertEqual(observe.call_count,2)
+
+    def test_stable_locked_console_ends_long_wait_and_creates_no_ready_receipt(self):
+        clock=[0.]
+        def pause(seconds): clock[0]+=seconds
+        locked=self.live_console(lock='locked')
+        with patch.object(desktop,'current',return_value='running'), patch.object(desktop,'phase',return_value='image-applied'), \
+             patch.object(desktop.time,'monotonic',side_effect=lambda:clock[0]), patch.object(desktop.time,'sleep',side_effect=pause), \
+             patch.object(desktop,'guest',return_value=subprocess.CompletedProcess([],0,json.dumps(locked),'')), \
+             self.assertRaisesRegex(ValueError,'console-locked'):
+            desktop.wait(self.root,self.state,900)
+        self.assertGreaterEqual(clock[0],45)
+        self.assertLess(clock[0],90)
+        self.assertFalse((self.root/'installed.json').exists())
+
+    def test_transport_only_wait_can_collect_after_logon_is_locked(self):
+        live=self.live_console(lock='locked')
+        with patch.object(desktop,'current',return_value='running'), patch.object(desktop,'phase',return_value='image-applied'), \
+             patch.object(desktop,'guest',return_value=subprocess.CompletedProcess([],0,json.dumps(live),'')) as observe:
+            self.assertEqual(desktop.wait(self.root,self.state,5,interactive=False),live)
+        observe.assert_called_once()
+        self.assertFalse((self.root/'installed.json').exists())
 
     def test_phase_owner_mismatch_never_reaches_the_guest(self):
         with patch.object(desktop,'current',return_value='running'), \
@@ -162,9 +205,10 @@ class DesktopTests(unittest.TestCase):
         desktop.save(self.root/'shutdown.json',{'uuid':self.owner,'shutdown':'guest-confirmed'})
         def transfer(d,s,name,path,timeout): path.write_bytes(b'original results')
         with patch.object(desktop,'current',return_value='off'),patch.object(desktop,'up',return_value={'state':'running','uuid':self.owner}), \
-             patch.object(desktop,'wait'),patch.object(desktop,'get_file',side_effect=transfer),patch.object(desktop,'down',return_value={}), \
+             patch.object(desktop,'wait') as attest,patch.object(desktop,'get_file',side_effect=transfer),patch.object(desktop,'down',return_value={}), \
              self.assertRaisesRegex(ValueError,'not confirmed'):
             desktop.collect(self.root,self.state,'result.zip',target,20)
+        attest.assert_called_once_with(self.root,self.state,20,interactive=False)
         self.assertFalse(target.exists())
 
     def test_new_boot_archives_shutdown_proof_without_authorizing_a_later_crash(self):
