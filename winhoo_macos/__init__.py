@@ -523,6 +523,10 @@ def arguments(parser):
             flags = p.add_mutually_exclusive_group(required=True)
             flags.add_argument('--only-ssh',action='store_true',help='Remove all optional host forwards')
             flags.add_argument('--forward',action='append',metavar='HOST:GUEST',help='Replace the optional forward list')
+        if op == 'up':
+            p.add_argument('--wait',nargs='?',const='console',choices=('console','transport'),
+                           help='Wait for the unlocked test console (default) or only authenticated guest transport')
+            p.add_argument('--timeout',type=int,help='Readiness timeout in seconds when using --wait (default: 900)')
         if op in ('exec','put','archive','get','collect','wait','inspect','down'):
             p.add_argument('--timeout', type=int, default=900 if op=='wait' else 120)
         if op == 'inspect':
@@ -581,7 +585,13 @@ def dispatch(a):
         if op == 'forwards':
             return set_forwards(d,s,a.forward or [])
         if op == 'up':
-            return up(d,s)
+            if a.timeout is not None and (not a.wait or a.timeout < 1):
+                raise ValueError('--timeout requires --wait and a positive number of seconds')
+            started = up(d,s)
+            if a.wait:
+                ready = wait(d,s,a.timeout or 900,interactive=a.wait == 'console')
+                return {**started,'state':'running','readiness':ready,'waitedFor':a.wait}
+            return started
         if op == 'down':
             return down(d,s,a.timeout)
         if op == 'wait':
