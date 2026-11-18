@@ -3,6 +3,7 @@ import argparse
 import base64
 from contextlib import contextmanager, nullcontext
 import json
+import ipaddress
 import os
 from pathlib import Path
 import platform
@@ -12,6 +13,7 @@ import socket
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 
@@ -292,9 +294,20 @@ $c=Get-CimInstance Win32_ComputerSystem
 @{owner=$o.uuid; account=$env:USERNAME; console=$c.UserName; build=[Environment]::OSVersion.Version.Build; arch=$env:PROCESSOR_ARCHITECTURE} | ConvertTo-Json -Compress"""
 
 
-def inspect_guest(d, s, timeout):
-    # Collect only metadata for the desktop and its declared TCP listeners.
-    ports = ','.join(str(int(guest_port)) for _, guest_port in s['ports'])
+def check_loopback(listeners, ports):
+    for port in sorted(set(ports)):
+        addresses = [ipaddress.ip_address(item['LocalAddress']) for item in listeners if item['LocalPort'] == port]
+        if not addresses:
+            raise ValueError(f'Expected a guest loopback listener on TCP {port}; no listener found')
+        if not all(address.is_loopback for address in addresses):
+            raise ValueError(f'Guest TCP {port} is also listening outside loopback')
+
+
+def inspect_guest(d, s, timeout, required=()):
+    if len(required)>16 or any(not 1 <= port <= 65535 for port in required):
+        raise ValueError('Specify at most 16 valid guest TCP ports')
+    # Query Windows itself; this also works with only SSH forwarded on the host.
+    ports = ','.join(map(str,sorted({int(g) for _,g in s['ports']} | set(required))))
     script = r"""
 $owner = Get-Content C:\ProgramData\WinHoo\owner.json -Raw | ConvertFrom-Json
 $sys = Get-CimInstance Win32_ComputerSystem
@@ -319,6 +332,7 @@ $blocks = @(Get-NetFirewallRule -PolicyStore ActiveStore -Enabled True -Directio
     info = json.loads(result.stdout)
     if info.get('owner') != s['uuid'] or info.get('account','').lower() != s['account'].lower():
         raise ValueError('Authenticated diagnostic owner mismatch')
+    check_loopback(info['listeners'],required)
     return info
 
 
@@ -418,7 +432,7 @@ def arguments(parser):
     p.add_argument('--esd', type=Path, required=True)
     p.add_argument('--sha256', required=True)
     p.add_argument('--output', type=Path, required=True)
-    for op in ('create','forwards','up','wait','status','inspect','screenshot','exec','put','get','down'):
+    for op in ('create','forwards','up','wait','status','inspect','screenshot','exec','put','get','collect','down'):
         p = commands.add_parser(op)
         p.add_argument('directory', type=Path, help='Private retained VM directory')
         if op == 'create':
@@ -431,8 +445,11 @@ def arguments(parser):
             flags = p.add_mutually_exclusive_group(required=True)
             flags.add_argument('--only-ssh',action='store_true',help='Remove all optional host forwards')
             flags.add_argument('--forward',action='append',metavar='HOST:GUEST',help='Replace the optional forward list')
-        if op in ('exec','put','get','wait','inspect','down'):
+        if op in ('exec','put','get','collect','wait','inspect','down'):
             p.add_argument('--timeout', type=int, default=900 if op=='wait' else 120)
+        if op == 'inspect':
+            p.add_argument('--require-loopback',type=int,metavar='GUEST_PORT',action='append',default=[],
+                           help='Require this guest service to listen only on loopback; repeat for other ports')
         if op == 'exec':
             src = p.add_mutually_exclusive_group(required=True)
             src.add_argument('--file', type=Path)
@@ -440,7 +457,7 @@ def arguments(parser):
         if op == 'put':
             p.add_argument('source', type=Path)
             p.add_argument('basename', help='Filename inside the dedicated user profile')
-        if op == 'get':
+        if op in ('get','collect'):
             p.add_argument('basename', help='Regular file inside the dedicated user profile')
             p.add_argument('destination', type=Path, help='New local file; never overwrites evidence')
 
@@ -485,14 +502,15 @@ def dispatch(a):
             return down(d,s,a.timeout)
         if op == 'wait':
             return wait(d,s,a.timeout)
+        if op == 'collect':
+            return collect(d,s,a.basename,a.destination,a.timeout)
         if current(d,s) != 'running' or not owned_receipt(d,'installed.json','owner',s):
             raise ValueError('Run desktop wait to attest this instance first')
         if op == 'inspect':
-            return inspect_guest(d,s,a.timeout)
+            return inspect_guest(d,s,a.timeout,a.require_loopback)
         if op == 'exec':
             return guest(d,s,sys.stdin.read() if a.stdin else a.file.read_text(),timeout=a.timeout,capture=False).returncode
-        if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,95}', a.basename):
-            raise ValueError('The guest destination must be a plain filename')
+        plain_filename(a.basename)
         if op == 'get':
             get_file(d,s,a.basename,a.destination,a.timeout)
             return {'path':str(a.destination.resolve())}
@@ -500,8 +518,12 @@ def dispatch(a):
                               timeout=a.timeout, stdin=subprocess.DEVNULL).returncode
 
 
+def plain_filename(name):
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,95}', name):
+        raise ValueError('The guest filename must be a plain basename')
+
+
 def get_file(d, state, name, destination, timeout):
-    import tempfile
     if destination.exists() or destination.is_symlink():
         raise ValueError('Refusing to replace an existing local file')
     with tempfile.TemporaryDirectory(dir=destination.parent) as staging:
@@ -512,3 +534,29 @@ def get_file(d, state, name, destination, timeout):
             raise ValueError('Expected a regular file from the guest')
         result.chmod(0o600)
         os.link(result,destination)  # Atomic publication, including a concurrent writer.
+
+
+def collect(d, state, name, destination, timeout):
+    """Recover an existing file after a clean shutdown, without rerunning its producer."""
+    plain_filename(name)
+    if destination.exists() or destination.is_symlink():
+        raise ValueError('Refusing to replace an existing local file')
+    if current(d,state) != 'off' or not owned_receipt(d,'installed.json','owner',state):
+        raise ValueError('Collection requires a stopped, previously attested Windows desktop')
+    if not owned_receipt(d,'shutdown.json','uuid',state) or json.loads((d/'shutdown.json').read_text()).get('shutdown') != 'guest-confirmed':
+        raise ValueError('A confirmed shutdown of this desktop is required for collection')
+    with tempfile.TemporaryDirectory(dir=destination.parent) as temp:
+        staged = Path(temp)/'complete'
+        active = up(d,state)
+        if active.get('state') != 'running' or active.get('uuid') != state['uuid']:
+            raise ValueError('Could not acquire the stopped desktop for collection')
+        try:
+            wait(d,state,timeout)
+            get_file(d,state,name,staged,timeout)
+        finally:
+            # down() revalidates the QMP identity; no forced poweroff on failure.
+            receipt = down(d,state,timeout)
+            if receipt.get('uuid') != state['uuid'] or receipt.get('shutdown') != 'guest-confirmed':
+                raise ValueError('Guest shutdown after collection was not confirmed')
+        os.link(staged,destination)
+    return {'uuid':state['uuid'],'path':str(destination.resolve()),'shutdown':'guest-confirmed'}

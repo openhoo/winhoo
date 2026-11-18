@@ -141,3 +141,28 @@ class DesktopTests(unittest.TestCase):
             desktop.set_forwards(self.root,cfg,[])
         saved=json.loads((self.root/'desktop.json').read_text())
         self.assertEqual(saved,{**cfg,'ports':[[2226,22]]})
+
+    def test_loopback_check_considers_every_listener_on_the_requested_port(self):
+        listeners=[{'LocalPort':22,'LocalAddress':'0.0.0.0'},{'LocalPort':8700,'LocalAddress':'::1'},
+                   {'LocalPort':8700,'LocalAddress':'127.0.0.1'}]
+        desktop.check_loopback(listeners,[8700])
+        for address in ('::','0.0.0.0','10.0.2.15'):
+            with self.subTest(address=address),self.assertRaisesRegex(ValueError,'outside loopback'):
+                desktop.check_loopback(listeners+[{'LocalPort':8700,'LocalAddress':address}],[8700])
+        with self.assertRaisesRegex(ValueError,'no listener'):
+            desktop.check_loopback(listeners,[8701])
+
+    def test_collect_requires_a_stopped_owned_guest_and_proof_of_shutdown(self):
+        target=self.root/'result'
+        with patch.object(desktop,'current',return_value='running'),patch.object(desktop,'up') as boot, \
+             self.assertRaisesRegex(ValueError,'stopped'):
+            desktop.collect(self.root,self.state,'result.zip',target,20)
+        boot.assert_not_called()
+        desktop.save(self.root/'installed.json',{'owner':self.owner})
+        desktop.save(self.root/'shutdown.json',{'uuid':self.owner,'shutdown':'guest-confirmed'})
+        def transfer(d,s,name,path,timeout): path.write_bytes(b'original results')
+        with patch.object(desktop,'current',return_value='off'),patch.object(desktop,'up',return_value={'state':'running','uuid':self.owner}), \
+             patch.object(desktop,'wait'),patch.object(desktop,'get_file',side_effect=transfer),patch.object(desktop,'down',return_value={}), \
+             self.assertRaisesRegex(ValueError,'not confirmed'):
+            desktop.collect(self.root,self.state,'result.zip',target,20)
+        self.assertFalse(target.exists())
