@@ -24,6 +24,26 @@ winhoo desktop up "$root/test" --wait
 
 Use a new instance directory on a local volume, with at least 40 GiB free before creation. Prepare the setup tree once; each instance gets its own installer, UEFI variables, TPM state, host key and test login. The licensed Windows installation signs in its dedicated local test user at boot. The private directory includes the installer with its unattended credentials: do not share it or publish screenshots without inspecting them. The SSH client checks the per-instance host key from the first connection. Optional `--forward HOSTPORT:GUESTPORT` arguments are accepted at creation; all host listeners bind to IPv4 loopback. For a test that runs entirely inside a retained guest, use `winhoo desktop forwards "$root/test" --only-ssh` while stopped. This releases old host ports without replacing the Windows disk.
 
+## Identifying the installed controller
+
+Two locally built wheels can have the same package version and different
+PowerShell scripts. Before a long run, compare the installed desktop
+controller with the source revision selected for that run:
+
+```sh
+# From the clean checkout at the intended revision:
+expected=$(python3 winhoo.py desktop identity | python3 -c 'import json,sys; print(json.load(sys.stdin)["sha256"])')
+winhoo desktop identity --expect-sha256 "$expected"
+```
+
+The command compares the launcher, desktop Python modules and bundled Windows
+assets by actual bytes. It works without Git, QEMU or a running desktop; the
+per-file hashes identify which component differs. Package version, paths,
+build timestamps and bytecode caches do not affect the result. Use a separate
+virtual environment for an update, and keep the absolute path to the selected
+CLI for the entire run, including result collection and shutdown. This check
+does not verify a signature, Windows installation or consumer payload.
+
 ## Daily use
 
 Use `up --wait` when the next step needs a signed-in Windows desktop. The

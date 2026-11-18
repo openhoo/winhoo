@@ -515,7 +515,9 @@ def parser() -> argparse.ArgumentParser:
     root.add_argument("--state-dir", type=Path, default=ROOT / ".local", help="Private per-instance state directory.")
     commands = root.add_subparsers(dest="command", required=True)
     from winhoo_macos import arguments as desktop_arguments
-    desktop_arguments(commands.add_parser("desktop", help="Operate an owned Windows desktop VM on Apple Silicon."))
+    desktop = commands.add_parser("desktop", help="Operate an owned Windows desktop VM on Apple Silicon.")
+    desktop.set_defaults(desktop_launcher=Path(__file__).resolve())
+    desktop_arguments(desktop)
     commands.add_parser("doctor", help="Check the selected native Windows container engine.")
     build = commands.add_parser("build", help="Build the reusable base image.")
     build.add_argument("--image", default=DEFAULT_IMAGE)

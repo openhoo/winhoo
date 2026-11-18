@@ -3,6 +3,7 @@ import argparse
 import base64
 from contextlib import contextmanager, nullcontext
 import json
+import hashlib
 import ipaddress
 import os
 from pathlib import Path
@@ -31,6 +32,23 @@ def save(path, value):
     temporary = path.with_suffix('.tmp')
     temporary.write_text(json.dumps(value, indent=2) + '\n')
     temporary.replace(path)
+
+
+def controller_identity(launcher, package, expected=None):
+    """Identify the host code and bundled Windows assets used by this desktop CLI."""
+    if expected is not None and not re.fullmatch('[0-9a-f]{64}', expected):
+        raise ValueError('Expected a lowercase SHA-256 fingerprint')
+    # Python modules plus every asset type distributed by pyproject.toml.
+    suffixes = {'.py', '.xml', '.ps1', '.cmd', '.ini', '.cs'}
+    paths = {'winhoo.py': launcher}
+    paths.update((f'winhoo_macos/{p.name}', p) for p in package.iterdir()
+                 if p.suffix in suffixes and p.is_file())
+    hashes = {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path in sorted(paths.items())}
+    payload = json.dumps(hashes, sort_keys=True, separators=(',', ':')).encode('ascii')
+    digest = hashlib.sha256(payload).hexdigest()
+    if expected is not None and digest != expected:
+        raise ValueError(f'Desktop controller {digest} does not match expected {expected}')
+    return {'schema': 'winhoo.desktop-controller/1', 'sha256': digest, 'files': hashes}
 
 
 def read_state(directory):
@@ -568,6 +586,8 @@ def down(d, s, timeout):
 def arguments(parser):
     commands = parser.add_subparsers(dest='desktop_op', required=True)
     commands.add_parser('doctor')
+    identity = commands.add_parser('identity', help='Fingerprint this desktop CLI and its bundled Windows files')
+    identity.add_argument('--expect-sha256', metavar='SHA256', help='Require these exact controller bytes')
     commands.add_parser('sources', help='Fetch or verify the pinned Windows media, OpenSSH and network driver').add_argument('cache',type=Path)
     p = commands.add_parser('media')
     p.add_argument('--esd', type=Path, required=True)
@@ -622,6 +642,8 @@ def arguments(parser):
 def dispatch(a):
     os.umask(0o077)
     op = a.desktop_op
+    if op == 'identity':
+        return controller_identity(a.desktop_launcher, Path(__file__).parent, a.expect_sha256)
     if op == 'doctor':
         return doctor()
     if op == 'sources':
