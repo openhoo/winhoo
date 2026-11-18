@@ -73,7 +73,7 @@ def lifecycle(directory, *, shared=False, filename='lifecycle.lock'):
 def operation_lock(directory, op):
     # A long test may write guest state; allow observation, but never another
     # command, upload or power transition on top of it.
-    with lifecycle(directory,shared=op in ('exec','put','archive','get','inspect')), (
+    with lifecycle(directory,shared=op in ('exec','put','archive','get','inspect','foreground')), (
         lifecycle(directory,filename='guest-operation.lock') if op in ('exec','put','archive') else nullcontext()
     ):
         yield
@@ -339,6 +339,32 @@ $who | ConvertTo-Json -Compress"""
 ATTEST_TRANSPORT = IDENTITY + '$who | ConvertTo-Json -Compress'
 
 
+def foreground(directory, state, expected_pid=None):
+    if expected_pid is not None and not 0 < expected_pid <= 0x7fffffff:
+        raise ValueError('Expected a positive Windows process ID')
+    request = {'owner': state['uuid'], 'account': state['account'], 'id': uuid.uuid4().hex,
+               'probeSource': Path(__file__).with_name('foreground.cs').read_text(encoding='utf-8')}
+    encoded = base64.b64encode(json.dumps(request).encode()).decode('ascii')
+    script = CONSOLE + IDENTITY + (
+        "$request = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + encoded + "')) | ConvertFrom-Json\n"
+    ) + Path(__file__).with_name('foreground.ps1').read_text(encoding='utf-8')
+    result = guest(directory, state, script, timeout=45, capture=True)
+    if result.returncode:
+        lines = [line.strip() for line in result.stderr.splitlines() if line.strip() and not line.startswith(('#< CLIXML', '<Objs '))]
+        raise ValueError('Could not observe the foreground: ' + next(iter(lines), 'no diagnostic')[:300])
+    info = json.loads(result.stdout)
+    if (info.get('owner') != state['uuid'] or info.get('request') != request['id']
+            or (info.get('account') or '').casefold() != state['account'].casefold()
+            or console_state(info, state['account']) != 'ready'
+            or info['consoleSession'].get('account') != info.get('console')
+            or type(info.get('session')) is not int or info['session'] != info['consoleSession']['id']
+            or type(info.get('pid')) is not int or info['pid'] <= 0 or not isinstance(info.get('process'), str) or not info['process']):
+        raise ValueError('Foreground sample does not belong to this request and its unlocked console')
+    if expected_pid is not None and info['pid'] != expected_pid:
+        raise ValueError(f"Foreground is {info['process']} (PID {info['pid']}); expected PID {expected_pid}")
+    return info
+
+
 def check_loopback(listeners, ports):
     for port in sorted(set(ports)):
         addresses = [ipaddress.ip_address(item['LocalAddress']) for item in listeners if item['LocalPort'] == port]
@@ -509,7 +535,7 @@ def arguments(parser):
     p.add_argument('--esd', type=Path, required=True)
     p.add_argument('--sha256', required=True)
     p.add_argument('--output', type=Path, required=True)
-    for op in ('create','forwards','up','wait','status','inspect','screenshot','exec','put','archive','get','collect','down'):
+    for op in ('create','forwards','up','wait','status','inspect','foreground','screenshot','exec','put','archive','get','collect','down'):
         p = commands.add_parser(op)
         p.add_argument('directory', type=Path, help='Private retained VM directory')
         if op == 'create':
@@ -532,6 +558,8 @@ def arguments(parser):
         if op == 'inspect':
             p.add_argument('--require-loopback',type=int,metavar='GUEST_PORT',action='append',default=[],
                            help='Require this guest service to listen only on loopback; repeat for other ports')
+        if op == 'foreground':
+            p.add_argument('--expect-pid', type=int, help='Fail if the foreground window belongs to a different Windows process')
         if op == 'exec':
             src = p.add_mutually_exclusive_group(required=True)
             src.add_argument('--file', type=Path)
@@ -602,6 +630,8 @@ def dispatch(a):
             raise ValueError('Run desktop wait to attest this instance first')
         if op == 'inspect':
             return inspect_guest(d,s,a.timeout,a.require_loopback)
+        if op == 'foreground':
+            return foreground(d,s,a.expect_pid)
         if op == 'exec':
             return guest(d,s,sys.stdin.read() if a.stdin else a.file.read_text(),timeout=a.timeout,capture=False).returncode
         if op == 'archive':

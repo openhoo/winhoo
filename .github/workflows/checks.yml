@@ -9,6 +9,16 @@ permissions:
   contents: read
 
 jobs:
+  foreground-probe:
+    name: Foreground probe on Windows
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Compile and run the windowless probe
+        shell: powershell
+        run: .\tests\windows-foreground.ps1
+
   unit-tests:
     name: Controller and launcher (Python ${{ matrix.python }})
     runs-on: ubuntu-24.04
