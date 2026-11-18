@@ -285,13 +285,15 @@ $audio = @(Get-PnpDevice -PresentOnly -Class AudioEndpoint -ErrorAction Silently
 $listeners = @(Get-NetTCPConnection -State Listen | Where-Object { $_.LocalPort -in @(PORTS) } | Select-Object LocalAddress,LocalPort,OwningProcess)
 $programs = @($listeners | ForEach-Object { (Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue).Path } | Where-Object { $_ })
 $profiles = @(Get-NetConnectionProfile | Select-Object InterfaceAlias,@{n='category';e={[string]$_.NetworkCategory}})
+$policies = @(Get-ExecutionPolicy -List | Select-Object @{n='scope';e={[string]$_.Scope}},@{n='policy';e={[string]$_.ExecutionPolicy}})
 $blocks = @(Get-NetFirewallRule -PolicyStore ActiveStore -Enabled True -Direction Inbound -Action Block | ForEach-Object {
     $r=$_; $p=($r | Get-NetFirewallApplicationFilter).Program
     if ($p -and $p -in $programs) { @{program=$p;profile=[string]$r.Profile;rule=$r.DisplayName} }
 })
 @{owner=$owner.uuid;account=$env:USERNAME;console=$sys.UserName;build=$os.BuildNumber;arch=$env:PROCESSOR_ARCHITECTURE;
   freeMemoryMiB=[int]($os.FreePhysicalMemory/1024);audio=$audio;listeners=$listeners;
-  networkProfiles=$profiles;inboundProgramBlocks=$blocks} | ConvertTo-Json -Depth 4 -Compress
+  networkProfiles=$profiles;inboundProgramBlocks=$blocks;
+  scriptPolicy=[string](Get-ExecutionPolicy);scriptPolicyScopes=$policies} | ConvertTo-Json -Depth 4 -Compress
 """.replace('PORTS', ports)
     result = guest(d,s,script,timeout=timeout,capture=True)
     if result.returncode:
