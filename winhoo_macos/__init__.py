@@ -93,7 +93,28 @@ def doctor():
     for name in ('edk2-aarch64-code.fd', 'edk2-arm-vars.fd'):
         if not (firmware / name).is_file():
             raise ValueError(f'Missing UEFI firmware: {name}')
-    return {'backend': 'hvf', 'host': 'macOS arm64', 'firmware': str(firmware)}
+    return {'backend': 'hvf', 'host': 'macOS arm64', 'firmware': str(firmware), 'lid': lid_state()}
+
+
+def lid_state():
+    try:
+        result = subprocess.run(['/usr/sbin/ioreg','-r','-k','AppleClamshellState','-d','1'],
+                                capture_output=True,text=True,timeout=3,check=True)
+        match = re.search(r'"AppleClamshellState"\s*=\s*(Yes|No)\b',result.stdout)
+        if match:
+            return 'closed' if match[1] == 'Yes' else 'open'
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return 'unavailable'
+
+
+def guard_idle_sleep(pid):
+    if not pid or pid <= 1:
+        raise ValueError('Cannot associate idle-sleep assertion with a VM process')
+    # macOS releases this assertion when this particular process exits. No
+    # display assertion, global power setting, or lid override is needed.
+    return subprocess.Popen(['/usr/bin/caffeinate','-i','-w',str(pid)],stdin=subprocess.DEVNULL,
+                            stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
 
 
 def forward_ports(pairs, ssh):
@@ -126,7 +147,7 @@ def create(d, args):
         raise ValueError('The local VM needs at least 40 GiB free')
     d.mkdir(mode=0o700)  # Never adopt or overwrite a preexisting disk.
     state = {'schema': 'winhoo.macos-desktop/1', 'directory': str(d), 'uuid': str(uuid.uuid4()), 'account': args.account,
-             'sshPort': args.ssh_port, 'ports': ports}
+             'sshPort': args.ssh_port, 'ports': ports, 'allowIdleSleep': args.allow_idle_sleep}
     media.installer(d, args.setup.resolve(), args.openssh.resolve(), args.netkvm.resolve(), state)
     shutil.copyfile(firmware / 'edk2-arm-vars.fd', d / 'vars.fd')
     (d / 'tpm').mkdir()
@@ -279,7 +300,15 @@ def up(d, state):
         if tpm.poll() is None:
             tpm.terminate()
         raise
-    return {'state': current(d, state), 'uuid': state['uuid'], 'backend': 'hvf'}
+    result = {'state': current(d, state), 'uuid': state['uuid'], 'backend': 'hvf'}
+    if result['state'] == 'running' and not state.get('allowIdleSleep',False):
+        try:
+            guard = guard_idle_sleep(process_id(d))
+            result['idleSleepGuardPid'] = guard.pid
+        except (OSError, ValueError) as exc:
+            # QEMU has already started; preserve its state and tell the caller.
+            result['idleSleepGuardError'] = str(exc)
+    return result
 
 
 def ssh_args(d, s):
@@ -450,6 +479,7 @@ def arguments(parser):
             for flag in ('setup','openssh','netkvm'):
                 p.add_argument('--'+flag, type=Path, required=True)
             p.add_argument('--account', default='WinHooTest')
+            p.add_argument('--allow-idle-sleep',action='store_true',help='Do not request a macOS idle-sleep assertion for the VM')
             p.add_argument('--ssh-port', type=int, default=2226)
             p.add_argument('--forward', action='append', default=[], metavar='HOST:GUEST')
         if op == 'forwards':
