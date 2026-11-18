@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import patch, Mock
 import uuid
 
+import winhoo
 import winhoo_macos as desktop
 from winhoo_macos import media
 
@@ -25,6 +26,46 @@ class DesktopTests(unittest.TestCase):
             with self.subTest(port=port), self.assertRaises(ValueError):
                 desktop.forward_ports([port], 2226)
         self.assertEqual(desktop.forward_ports(['3487:80'],2226), [(2226,22),(3487,80)])
+
+    def test_start_and_wait_attests_under_one_exclusive_lifecycle_lock(self):
+        active = {'state': 'running', 'uuid': self.owner}
+        for flags, expected in (([], None), (['--wait'], 'console'), (['--wait', 'transport'], 'transport')):
+            with self.subTest(flags=flags):
+                args = winhoo.parser().parse_args(['desktop', 'up', str(self.root), *flags])
+
+                def attest(directory, state, timeout, *, interactive):
+                    with self.assertRaisesRegex(ValueError, 'operation owns'), desktop.operation_lock(directory, 'down'):
+                        self.fail('A competing shutdown acquired the lock during startup')
+                    return {'owner': self.owner, 'account': 'TestUser', 'arch': 'ARM64'}
+
+                with patch.object(desktop, 'read_state', return_value=self.state), \
+                     patch.object(desktop, 'up', return_value=active), patch.object(desktop, 'wait', side_effect=attest) as wait:
+                    result = desktop.dispatch(args)
+                if expected:
+                    wait.assert_called_once_with(self.root, self.state, 900, interactive=expected == 'console')
+                    self.assertEqual(result['readiness']['owner'], self.owner)
+                    self.assertEqual(result['waitedFor'], expected)
+                else:
+                    wait.assert_not_called()
+                    self.assertEqual(result, active)
+
+    def test_start_does_not_report_ready_when_the_requested_console_is_locked(self):
+        args=winhoo.parser().parse_args(['desktop','up',str(self.root),'--wait','console','--timeout','60'])
+        with patch.object(desktop,'read_state',return_value=self.state), \
+             patch.object(desktop,'up',return_value={'state':'running','uuid':self.owner}), \
+             patch.object(desktop,'wait',side_effect=ValueError('console-locked')), \
+             patch.object(desktop,'down') as stop, self.assertRaisesRegex(ValueError,'console-locked'):
+            desktop.dispatch(args)
+        stop.assert_not_called()
+
+    def test_invalid_readiness_timeout_does_not_start_the_vm(self):
+        for flags in (['--timeout', '60'], ['--wait', '--timeout', '0']):
+            with self.subTest(flags=flags):
+                args = winhoo.parser().parse_args(['desktop', 'up', str(self.root), *flags])
+                with patch.object(desktop, 'read_state', return_value=self.state), patch.object(desktop, 'up') as start:
+                    with self.assertRaisesRegex(ValueError, '--timeout requires --wait'):
+                        desktop.dispatch(args)
+                    start.assert_not_called()
 
     def test_different_retained_guest_cannot_authorize_a_command(self):
         receipt = self.root / 'installed.json'

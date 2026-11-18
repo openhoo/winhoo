@@ -19,18 +19,26 @@ winhoo desktop media --esd "$root/media/windows-pro-arm64.esd" \
 winhoo desktop create "$root/test" --setup "$root/setup" \
   --openssh "$root/media/OpenSSH-ARM64.zip" --netkvm "$root/media/NetKVM" \
   --account WinHooTest --ssh-port 2226
-winhoo desktop up "$root/test"
-winhoo desktop wait "$root/test"
+winhoo desktop up "$root/test" --wait
 ```
 
 Use a new instance directory on a local volume, with at least 40 GiB free before creation. Prepare the setup tree once; each instance gets its own installer, UEFI variables, TPM state, host key and test login. The licensed Windows installation signs in its dedicated local test user at boot. The private directory includes the installer with its unattended credentials: do not share it or publish screenshots without inspecting them. The SSH client checks the per-instance host key from the first connection. Optional `--forward HOSTPORT:GUESTPORT` arguments are accepted at creation; all host listeners bind to IPv4 loopback. For a test that runs entirely inside a retained guest, use `winhoo desktop forwards "$root/test" --only-ssh` while stopped. This releases old host ports without replacing the Windows disk.
 
 ## Daily use
 
+Use `up --wait` when the next step needs a signed-in Windows desktop. The
+controller holds the same lifecycle lock until it has observed the dedicated
+user on the active, unlocked console. For service work on an installed desktop,
+`up --wait transport --timeout 180` waits for pinned SSH and the guest identity
+without requiring an unlocked console. A successful response includes the live
+observation in `readiness`. A timeout leaves the guest available for inspection.
+Plain `up` still returns as soon as QEMU starts: an immediate guest command
+can fail during SSH startup, and an ACPI power-down request sent that early
+can go unanswered.
+
 ```sh
 winhoo desktop status "$root/test"
-winhoo desktop up "$root/test"
-winhoo desktop wait "$root/test" --timeout 180
+winhoo desktop up "$root/test" --wait --timeout 180
 winhoo desktop inspect "$root/test" --timeout 15
 winhoo desktop put "$root/test" ./sample.txt sample.txt
 winhoo desktop exec "$root/test" --stdin <<'PS'

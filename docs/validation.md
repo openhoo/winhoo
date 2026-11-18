@@ -91,3 +91,10 @@ An immediate archive after QEMU startup failed during the SSH banner exchange.
 an independent `archive --output` of the same source. Both downloads matched
 their own guest SHA-256. The host suite includes rejection of altered or
 truncated downloads without publishing a partial file (66 tests passed).
+
+The combined `desktop up --wait` command was added after a cold boot
+returned before Windows accepted SSH. The host suite (69 tests) checks that
+the boot and readiness probe share the same exclusive lock, distinguishes an
+unlocked console from authenticated transport, and rejects invalid timeouts
+before boot. The locked-console fixture also verifies that a failed wait leaves
+the running guest available for inspection.
