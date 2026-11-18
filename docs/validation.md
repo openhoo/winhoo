@@ -75,3 +75,11 @@ The host regressions replay a locked console with the correct username, a
 changed domain, missing state and a subsequent unlock. They also check the
 45-second cutoff and transport-only recovery. The actual VM remained unlocked
 during the observation.
+
+The Windows PowerShell .NET ZIP helper failed on a real Playwright result
+directory with a generated attachment path longer than 260 characters. On
+the same retained Windows 11 ARM64 disk, `desktop archive` retrieved the
+original result, including its trace and video: 16 ZIP entries, a longest
+source path of 267 characters and 20,027,477 archived bytes. Every entry
+matched an independent extraction, and the downloaded ZIP matched the
+SHA-256 reported by Windows. The test was not repeated to recover these files.

@@ -73,8 +73,8 @@ def lifecycle(directory, *, shared=False, filename='lifecycle.lock'):
 def operation_lock(directory, op):
     # A long test may write guest state; allow observation, but never another
     # command, upload or power transition on top of it.
-    with lifecycle(directory,shared=op in ('exec','put','get','inspect')), (
-        lifecycle(directory,filename='guest-operation.lock') if op in ('exec','put') else nullcontext()
+    with lifecycle(directory,shared=op in ('exec','put','archive','get','inspect')), (
+        lifecycle(directory,filename='guest-operation.lock') if op in ('exec','put','archive') else nullcontext()
     ):
         yield
 
@@ -509,7 +509,7 @@ def arguments(parser):
     p.add_argument('--esd', type=Path, required=True)
     p.add_argument('--sha256', required=True)
     p.add_argument('--output', type=Path, required=True)
-    for op in ('create','forwards','up','wait','status','inspect','screenshot','exec','put','get','collect','down'):
+    for op in ('create','forwards','up','wait','status','inspect','screenshot','exec','put','archive','get','collect','down'):
         p = commands.add_parser(op)
         p.add_argument('directory', type=Path, help='Private retained VM directory')
         if op == 'create':
@@ -523,7 +523,7 @@ def arguments(parser):
             flags = p.add_mutually_exclusive_group(required=True)
             flags.add_argument('--only-ssh',action='store_true',help='Remove all optional host forwards')
             flags.add_argument('--forward',action='append',metavar='HOST:GUEST',help='Replace the optional forward list')
-        if op in ('exec','put','get','collect','wait','inspect','down'):
+        if op in ('exec','put','archive','get','collect','wait','inspect','down'):
             p.add_argument('--timeout', type=int, default=900 if op=='wait' else 120)
         if op == 'inspect':
             p.add_argument('--require-loopback',type=int,metavar='GUEST_PORT',action='append',default=[],
@@ -535,6 +535,9 @@ def arguments(parser):
         if op == 'put':
             p.add_argument('source', type=Path)
             p.add_argument('basename', help='Filename inside the dedicated user profile')
+        if op == 'archive':
+            p.add_argument('result_directory', help='Absolute local Windows directory containing completed test results')
+            p.add_argument('basename', help='New ZIP basename in the dedicated Windows profile')
         if op in ('get','collect'):
             p.add_argument('basename', help='Regular file inside the dedicated user profile')
             p.add_argument('destination', type=Path, help='New local file; never overwrites evidence')
@@ -588,6 +591,8 @@ def dispatch(a):
             return inspect_guest(d,s,a.timeout,a.require_loopback)
         if op == 'exec':
             return guest(d,s,sys.stdin.read() if a.stdin else a.file.read_text(),timeout=a.timeout,capture=False).returncode
+        if op == 'archive':
+            return archive_results(d,s,a.result_directory,a.basename,a.timeout)
         plain_filename(a.basename)
         if op == 'get':
             get_file(d,s,a.basename,a.destination,a.timeout)
@@ -599,6 +604,26 @@ def dispatch(a):
 def plain_filename(name):
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,95}', name):
         raise ValueError('The guest filename must be a plain basename')
+
+
+def archive_results(d, state, source, name, timeout):
+    plain_filename(name)
+    if not name.lower().endswith('.zip'):
+        raise ValueError('Expected a ZIP basename')
+    request = json.dumps({'owner':state['uuid'],'source':source,'name':name}).encode('utf-8')
+    payload = base64.b64encode(request).decode('ascii')
+    script = ("$request=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('"+payload+"')) | ConvertFrom-Json\n"
+              + Path(__file__).with_name('archive-results.ps1').read_text(encoding='utf-8'))
+    proc = guest(d,state,script,timeout=timeout,capture=True)
+    if proc.returncode:
+        lines = [line for line in proc.stderr.splitlines() if line.strip() and not line.startswith(('#< CLIXML','<Objs '))]
+        raise ValueError('Guest archive failed: ' + next(iter(lines),'no text diagnostic')[:300])
+    receipt = json.loads(proc.stdout)
+    if (receipt.get('owner') != state['uuid'] or receipt.get('name') != name
+            or type(receipt.get('bytes')) is not int or receipt['bytes'] < 1
+            or not re.fullmatch('[0-9a-f]{64}', str(receipt.get('sha256','')))):
+        raise ValueError('Incomplete or mismatched guest archive receipt')
+    return receipt
 
 
 def get_file(d, state, name, destination, timeout):
