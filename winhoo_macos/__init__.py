@@ -538,6 +538,9 @@ def arguments(parser):
         if op == 'archive':
             p.add_argument('result_directory', help='Absolute local Windows directory containing completed test results')
             p.add_argument('basename', help='New ZIP basename in the dedicated Windows profile')
+            p.add_argument('--output', type=Path, help='Download and verify the ZIP before publishing this new local file')
+        if op == 'collect':
+            p.add_argument('--from-directory', help='Archive this completed Windows result directory after boot; use a fresh ZIP basename')
         if op in ('get','collect'):
             p.add_argument('basename', help='Regular file inside the dedicated user profile')
             p.add_argument('destination', type=Path, help='New local file; never overwrites evidence')
@@ -584,7 +587,7 @@ def dispatch(a):
         if op == 'wait':
             return wait(d,s,a.timeout)
         if op == 'collect':
-            return collect(d,s,a.basename,a.destination,a.timeout)
+            return collect(d,s,a.basename,a.destination,a.timeout,source=a.from_directory)
         if current(d,s) != 'running' or not owned_receipt(d,'installed.json','owner',s):
             raise ValueError('Run desktop wait to attest this instance first')
         if op == 'inspect':
@@ -592,7 +595,13 @@ def dispatch(a):
         if op == 'exec':
             return guest(d,s,sys.stdin.read() if a.stdin else a.file.read_text(),timeout=a.timeout,capture=False).returncode
         if op == 'archive':
-            return archive_results(d,s,a.result_directory,a.basename,a.timeout)
+            if a.output is not None:
+                check_destination(a.output)
+            receipt = archive_results(d,s,a.result_directory,a.basename,a.timeout)
+            if a.output is not None:
+                get_file(d,s,a.basename,a.output,a.timeout,archive=receipt)
+                receipt['path'] = str(a.output.resolve())
+            return receipt
         plain_filename(a.basename)
         if op == 'get':
             get_file(d,s,a.basename,a.destination,a.timeout)
@@ -626,24 +635,33 @@ def archive_results(d, state, source, name, timeout):
     return receipt
 
 
-def get_file(d, state, name, destination, timeout):
+def check_destination(destination):
     if destination.exists() or destination.is_symlink():
         raise ValueError('Refusing to replace an existing local file')
+    if not destination.parent.is_dir():
+        raise ValueError('The local output directory must already exist')
+
+
+def get_file(d, state, name, destination, timeout, *, archive=None):
+    check_destination(destination)
     with tempfile.TemporaryDirectory(dir=destination.parent) as staging:
         result = Path(staging)/'download'
         subprocess.run(['scp', *ssh_args(d,state), f"{state['account']}@127.0.0.1:{name}", str(result)],
                        stdin=subprocess.DEVNULL, check=True, timeout=timeout)
         if not stat.S_ISREG(result.lstat().st_mode):
             raise ValueError('Expected a regular file from the guest')
+        if archive is not None and (result.stat().st_size != archive['bytes'] or media.digest(result) != archive['sha256']):
+            raise ValueError('Downloaded file does not match the guest archive receipt')
         result.chmod(0o600)
         os.link(result,destination)  # Atomic publication, including a concurrent writer.
 
 
-def collect(d, state, name, destination, timeout):
-    """Recover an existing file after a clean shutdown, without rerunning its producer."""
+def collect(d, state, name, destination, timeout, *, source=None):
+    """Recover finished files after a clean shutdown, without rerunning their producer."""
     plain_filename(name)
-    if destination.exists() or destination.is_symlink():
-        raise ValueError('Refusing to replace an existing local file')
+    if source is not None and not name.lower().endswith('.zip'):
+        raise ValueError('Expected a ZIP basename')
+    check_destination(destination)
     if current(d,state) != 'off' or not owned_receipt(d,'installed.json','owner',state):
         raise ValueError('Collection requires a stopped, previously attested Windows desktop')
     if not owned_receipt(d,'shutdown.json','uuid',state) or json.loads((d/'shutdown.json').read_text()).get('shutdown') != 'guest-confirmed':
@@ -653,13 +671,19 @@ def collect(d, state, name, destination, timeout):
         active = up(d,state)
         if active.get('state') != 'running' or active.get('uuid') != state['uuid']:
             raise ValueError('Could not acquire the stopped desktop for collection')
+        archive = None
         try:
             wait(d,state,timeout,interactive=False)
-            get_file(d,state,name,staged,timeout)
+            if source is None:
+                get_file(d,state,name,staged,timeout)
+            else:
+                archive = archive_results(d,state,source,name,timeout)
+                get_file(d,state,name,staged,timeout,archive=archive)
         finally:
             # down() revalidates the QMP identity; no forced poweroff on failure.
             receipt = down(d,state,timeout)
-            if receipt.get('uuid') != state['uuid'] or receipt.get('shutdown') != 'guest-confirmed':
+            if receipt.get('uuid') != state['uuid'] or receipt.get('shutdown') != 'guest-confirmed' or receipt.get('state') != 'off':
                 raise ValueError('Guest shutdown after collection was not confirmed')
         os.link(staged,destination)
-    return {'uuid':state['uuid'],'path':str(destination.resolve()),'shutdown':'guest-confirmed'}
+    return {'uuid':state['uuid'],'path':str(destination.resolve()),'shutdown':'guest-confirmed',
+            **({'archive':archive} if archive is not None else {})}

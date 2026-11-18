@@ -83,3 +83,11 @@ original result, including its trace and video: 16 ZIP entries, a longest
 source path of 267 characters and 20,027,477 archived bytes. Every entry
 matched an independent extraction, and the downloaded ZIP matched the
 SHA-256 reported by Windows. The test was not repeated to recover these files.
+
+A subsequent failed GUI block left three tests' traces on the stopped disk.
+An immediate archive after QEMU startup failed during the SSH banner exchange.
+`collect --from-directory` waited for the authenticated transport, downloaded
+2,927,422 bytes and recorded guest-confirmed shutdown. All 50 entries matched
+an independent `archive --output` of the same source. Both downloads matched
+their own guest SHA-256. The host suite includes rejection of altered or
+truncated downloads without publishing a partial file (66 tests passed).

@@ -92,12 +92,11 @@ on the installed disk. After its producer has closed the files, on the running
 attested desktop:
 
 ```sh
-winhoo desktop archive "$root/test" 'C:\ProgramData\MyRunner\attempts\example\results' attempt-example.zip
-winhoo desktop get "$root/test" attempt-example.zip ./attempt-example.zip
-shasum -a 256 ./attempt-example.zip
+winhoo desktop archive "$root/test" 'C:\ProgramData\MyRunner\attempts\example\results' attempt-example.zip --output ./attempt-example.zip
 ```
 
-Compare the downloaded hash with the archive receipt. The source must be a
+With `--output` WinHoo compares the length and SHA-256 of the staged local
+file with the guest receipt before publishing the download. The source must be a
 local result directory under the test profile or a specific application in
 ProgramData. WinHoo uses the Windows tar shipped with the OS, changes to the
 result directory before walking it, and publishes the ZIP in the test profile
@@ -106,3 +105,22 @@ PowerShell's .NET ZIP helper can reject. Archive creation will refuse an
 existing name or a concurrent guest writer. It never reruns the test. Keep
 archives private until you have reviewed their contents. A ZIP already staged
 on a stopped, cleanly shut down desktop can also be retrieved with `collect`.
+
+If the desktop has **already shut down** and only the original directory exists:
+
+```sh
+winhoo desktop collect "$root/test" recovery-example.zip ./recovered-example.zip \
+  --from-directory 'C:\ProgramData\MyRunner\attempts\example\results' --timeout 180
+```
+
+This holds the lifecycle lock from boot through shutdown, waits for the guest
+transport rather than the GUI, creates a new archive, verifies the downloaded
+bytes and publishes the local file only after the same guest has shut down.
+A running QEMU process is not evidence that Windows SSH is ready.
+
+An active console and a responding browser debugging port do not identify the
+foreground **application**. For example, after restarting the browser during
+a screen reader language change, real F6 presses cycled through Explorer's
+Start, Search and Desktop controls. Preserve a foreground window when restarting
+an unrelated helper. Confirm the application's native focus from the interactive
+session before sending navigation keys. The SSH service runs in session 0.
