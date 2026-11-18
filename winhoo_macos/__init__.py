@@ -588,6 +588,11 @@ def arguments(parser):
     commands.add_parser('doctor')
     identity = commands.add_parser('identity', help='Fingerprint this desktop CLI and its bundled Windows files')
     identity.add_argument('--expect-sha256', metavar='SHA256', help='Require these exact controller bytes')
+    archive = commands.add_parser('inspect-archive', help='Verify a saved Windows ZIP against its receipt without starting a guest')
+    archive.add_argument('file', type=Path)
+    archive.add_argument('--receipt', type=Path, required=True, help='Saved desktop archive or collect JSON receipt')
+    archive.add_argument('--expect-owner', metavar='UUID', help='Require this desktop UUID')
+    archive.add_argument('--find', metavar='FILENAME', help='List entries with this exact filename')
     commands.add_parser('sources', help='Fetch or verify the pinned Windows media, OpenSSH and network driver').add_argument('cache',type=Path)
     p = commands.add_parser('media')
     p.add_argument('--esd', type=Path, required=True)
@@ -644,6 +649,9 @@ def dispatch(a):
     op = a.desktop_op
     if op == 'identity':
         return controller_identity(a.desktop_launcher, Path(__file__).parent, a.expect_sha256)
+    if op == 'inspect-archive':
+        from .archive_info import inspect
+        return inspect(a.file, a.receipt, owner=a.expect_owner, find=a.find)
     if op == 'doctor':
         return doctor()
     if op == 'sources':

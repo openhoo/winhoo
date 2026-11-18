@@ -153,6 +153,21 @@ existing name or a concurrent guest writer. It never reruns the test. Keep
 archives private until you have reviewed their contents. A ZIP already staged
 on a stopped, cleanly shut down desktop can also be retrieved with `collect`.
 
+If the ZIP and its JSON receipt are already on the host, inspect those files
+before starting Windows again. Save the JSON output of `archive --output` or
+of `collect --from-directory` when downloading an archive. For example:
+
+```sh
+winhoo desktop inspect-archive ./attempt-example.zip --receipt ./attempt-example.json --find trace.zip
+```
+
+The command checks the complete file size and SHA-256 against the guest receipt.
+It lists matching filenames with their paths and uncompressed sizes; paths in the
+ZIP are never extracted. Add `--expect-owner UUID` to bind the receipt to a known
+desktop. This works after the guest is stopped or the local ZIP is renamed.
+An archive verifies what the original attempt recorded. A later passing replay
+has its own receipt and cannot replace an earlier failure.
+
 If the desktop has **already shut down** and only the original directory exists:
 
 ```sh
@@ -201,6 +216,14 @@ and verify its identity with the application's accessibility interface. If the
 command works directly on the editor, a mode change on the preceding menu
 adds an unrelated failure point. Preserve the failed attempt's events before
 replaying; a second toggle can reverse the first.
+
+A document operation can also fail after the browser has regained focus.
+In a Windows NVDA run, leaving an embedded frame and replacing its parent
+page was followed by an “unsupported in this document” response to native
+selection. An unchanged isolated replay passed. For a test of selection
+support, navigate to a fresh top-level HTML document, verify a named control
+through the screen reader, then check the replies to both enabling and
+disabling selection. Keep the original frame-exit test separate.
 
 ### Checking a native text or braille movement
 
