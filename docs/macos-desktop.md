@@ -164,6 +164,21 @@ titles. It can run while a test owns the guest. A different PID, a locked
 desktop, a session switch or a missing foreground window fails the check.
 This describes the instant sampled; another application can take focus later.
 
+### Replacing content inside a foreground application
+
+Windows can keep the same foreground process while the application's native
+focus changes. In a Windows 11 Chrome run, replacing a page that contained a
+focused editor produced a document focus event followed by a menu focus
+event. NVDA completed the requested mode toggle there, but was still in
+focus mode. The intended text command had never been sent.
+
+Use `foreground --expect-pid` when diagnosing which application owns the
+keyboard. For a command that targets a new control, first focus that control
+and verify its identity with the application's accessibility interface. If the
+command works directly on the editor, a mode change on the preceding menu
+adds an unrelated failure point. Preserve the failed attempt's events before
+replaying; a second toggle can reverse the first.
+
 ### Checking a native text or braille movement
 
 Give the command a starting position with a distinct target on either side.
