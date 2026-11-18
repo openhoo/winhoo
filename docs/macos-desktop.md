@@ -53,9 +53,12 @@ winhoo desktop down "$root/test"
 
 ### Checking whether a long command still owns the guest
 
-Run `winhoo desktop status "$root/test"` from a second terminal. Its
-`controllerLocks` field reads two host kernel locks without opening an SSH
-session or competing with the controller. An `exclusive` guest operation
+Run `winhoo desktop status "$root/test" --locks-only` from a second terminal.
+This reads the instance UUID and two host kernel locks. It works while another
+controller holds the QEMU monitor during shutdown, and opens neither a monitor
+connection nor an SSH session. Its output contains only `uuid` and
+`controllerLocks`. Omit the flag for the full status, including QEMU state and
+the installation phase. An `exclusive` guest operation
 with a `shared` lifecycle lock means that an `exec`, upload or archive
 holds the guest; another writer or power transition would be refused.
 A shared lifecycle lock by itself can be an observer. An exclusive

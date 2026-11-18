@@ -119,3 +119,9 @@ It reported a running VM, a shared lifecycle lock and an exclusive guest
 operation lock. No guest command or controller upgrade was needed. The
 macOS suite (73 tests) also checks idle, observation-only and power-transition
 states against real kernel locks and that status creates no lock files.
+
+The optional `desktop status --locks-only` returned the same shared lifecycle
+and exclusive guest operation locks during a later NVDA matrix on the Mac.
+The running controller was unchanged. A separate macOS test holds the
+exclusive shutdown lock and verifies the query returns without consulting
+QMP, the installation media or a guest receipt (74 host tests passed).
