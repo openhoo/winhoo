@@ -36,11 +36,12 @@ winhoo desktop put "$root/test" ./sample.txt sample.txt
 winhoo desktop exec "$root/test" --stdin <<'PS'
 Get-Content "$env:USERPROFILE\sample.txt"
 PS
+winhoo desktop get "$root/test" sample.txt ./sample-from-guest.txt
 winhoo desktop screenshot "$root/test"
 winhoo desktop down "$root/test"
 ```
 
-`status` returns the UUID, execution state, host/guest port pairs and installation phase. While a running WinPE owns the FAT receipt disk it may briefly return `receipt-unavailable`; a different owner is always an error. `wait` returns only after keyed SSH, the guest owner UUID, ARM64 architecture and console user agree. `inspect` reads Windows build, console user, available memory, playback endpoints and the PID listening on each declared guest port. A GUI launcher can exit after handing off to a different process (observed with x64 Chrome on ARM64); have the consumer track the live owning process before relaunching. SSH commands run in a service session. Desktop applications must be started in the signed-in user's interactive session. Keep GUI tests serialized; one guest has one foreground window. Inspect an ambiguous command timeout before submitting it again.
+`status` returns the UUID, execution state, host/guest port pairs and installation phase. While a running WinPE owns the FAT receipt disk it may briefly return `receipt-unavailable`; a different owner is always an error. `wait` returns only after keyed SSH, the guest owner UUID, ARM64 architecture and console user agree. `inspect` reads Windows build, console user, available memory, playback endpoints and the PID listening on each declared guest port. It also reports active network profiles and matching inbound program block rules. A Windows service listening in the guest can still be unreachable through a host forward; inspect both sides before changing an application. Guest-local tests can return their results with `get`, which publishes a complete regular file and refuses to overwrite existing evidence. A GUI launcher can exit after handing off to a different process (observed with x64 Chrome on ARM64); have the consumer track the live owning process before relaunching. SSH commands run in a service session. Desktop applications must be started in the signed-in user's interactive session. Keep GUI tests serialized; one guest has one foreground window. Inspect an ambiguous command timeout before submitting it again.
 
 ## Installation and recovery
 

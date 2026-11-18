@@ -283,8 +283,15 @@ $sys = Get-CimInstance Win32_ComputerSystem
 $os = Get-CimInstance Win32_OperatingSystem
 $audio = @(Get-PnpDevice -PresentOnly -Class AudioEndpoint -ErrorAction SilentlyContinue | Select-Object Status,FriendlyName)
 $listeners = @(Get-NetTCPConnection -State Listen | Where-Object { $_.LocalPort -in @(PORTS) } | Select-Object LocalAddress,LocalPort,OwningProcess)
+$programs = @($listeners | ForEach-Object { (Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue).Path } | Where-Object { $_ })
+$profiles = @(Get-NetConnectionProfile | Select-Object InterfaceAlias,@{n='category';e={[string]$_.NetworkCategory}})
+$blocks = @(Get-NetFirewallRule -PolicyStore ActiveStore -Enabled True -Direction Inbound -Action Block | ForEach-Object {
+    $r=$_; $p=($r | Get-NetFirewallApplicationFilter).Program
+    if ($p -and $p -in $programs) { @{program=$p;profile=[string]$r.Profile;rule=$r.DisplayName} }
+})
 @{owner=$owner.uuid;account=$env:USERNAME;console=$sys.UserName;build=$os.BuildNumber;arch=$env:PROCESSOR_ARCHITECTURE;
-  freeMemoryMiB=[int]($os.FreePhysicalMemory/1024);audio=$audio;listeners=$listeners} | ConvertTo-Json -Depth 4 -Compress
+  freeMemoryMiB=[int]($os.FreePhysicalMemory/1024);audio=$audio;listeners=$listeners;
+  networkProfiles=$profiles;inboundProgramBlocks=$blocks} | ConvertTo-Json -Depth 4 -Compress
 """.replace('PORTS', ports)
     result = guest(d,s,script,timeout=timeout,capture=True)
     if result.returncode:
@@ -391,7 +398,7 @@ def arguments(parser):
     p.add_argument('--esd', type=Path, required=True)
     p.add_argument('--sha256', required=True)
     p.add_argument('--output', type=Path, required=True)
-    for op in ('create','up','wait','status','inspect','screenshot','exec','put','down'):
+    for op in ('create','up','wait','status','inspect','screenshot','exec','put','get','down'):
         p = commands.add_parser(op)
         p.add_argument('directory', type=Path, help='Private retained VM directory')
         if op == 'create':
@@ -400,7 +407,7 @@ def arguments(parser):
             p.add_argument('--account', default='WinHooTest')
             p.add_argument('--ssh-port', type=int, default=2226)
             p.add_argument('--forward', action='append', default=[], metavar='HOST:GUEST')
-        if op in ('exec','put','wait','inspect','down'):
+        if op in ('exec','put','get','wait','inspect','down'):
             p.add_argument('--timeout', type=int, default=900 if op=='wait' else 120)
         if op == 'exec':
             src = p.add_mutually_exclusive_group(required=True)
@@ -409,6 +416,9 @@ def arguments(parser):
         if op == 'put':
             p.add_argument('source', type=Path)
             p.add_argument('basename', help='Filename inside the dedicated user profile')
+        if op == 'get':
+            p.add_argument('basename', help='Regular file inside the dedicated user profile')
+            p.add_argument('destination', type=Path, help='New local file; never overwrites evidence')
 
 
 def dispatch(a):
@@ -457,5 +467,22 @@ def dispatch(a):
             return guest(d,s,sys.stdin.read() if a.stdin else a.file.read_text(),timeout=a.timeout,capture=False).returncode
         if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,95}', a.basename):
             raise ValueError('The guest destination must be a plain filename')
+        if op == 'get':
+            get_file(d,s,a.basename,a.destination,a.timeout)
+            return {'path':str(a.destination.resolve())}
         return subprocess.run(['scp', *ssh_args(d,s), str(a.source.resolve()), f"{s['account']}@127.0.0.1:{a.basename}"],
                               timeout=a.timeout, stdin=subprocess.DEVNULL).returncode
+
+
+def get_file(d, state, name, destination, timeout):
+    import tempfile
+    if destination.exists() or destination.is_symlink():
+        raise ValueError('Refusing to replace an existing local file')
+    with tempfile.TemporaryDirectory(dir=destination.parent) as staging:
+        result = Path(staging)/'download'
+        subprocess.run(['scp', *ssh_args(d,state), f"{state['account']}@127.0.0.1:{name}", str(result)],
+                       stdin=subprocess.DEVNULL, check=True, timeout=timeout)
+        if not stat.S_ISREG(result.lstat().st_mode):
+            raise ValueError('Expected a regular file from the guest')
+        result.chmod(0o600)
+        os.link(result,destination)  # Atomic publication, including a concurrent writer.

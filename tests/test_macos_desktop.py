@@ -95,3 +95,28 @@ class DesktopTests(unittest.TestCase):
             media.sources(self.root)
         download.assert_not_called()
         self.assertEqual((self.root/'test.esd').read_bytes(), b'bad')
+
+    def test_download_publishes_bytes_once_and_preserves_prior_evidence(self):
+        dest = self.root/'local evidence.zip'
+        self.state['sshPort'] = 2226
+        def transfer(argv, **kwargs):
+            self.assertIn('StrictHostKeyChecking=yes', argv)
+            self.assertEqual(argv[-2], 'TestUser@127.0.0.1:evidence.zip')
+            Path(argv[-1]).write_bytes(b'records')
+        with patch.object(desktop.subprocess,'run',side_effect=transfer) as scp:
+            desktop.get_file(self.root,self.state,'evidence.zip',dest,10)
+            with self.assertRaisesRegex(ValueError,'replace'):
+                desktop.get_file(self.root,self.state,'evidence.zip',dest,10)
+            scp.assert_called_once()
+        self.assertEqual(dest.read_bytes(),b'records')
+        self.assertEqual(dest.stat().st_mode & 0o777,0o600)
+
+    def test_incomplete_download_is_never_visible_as_a_result(self):
+        dest = self.root/'summary.zip'
+        self.state['sshPort'] = 2226
+        def disconnect(argv, **kwargs):
+            Path(argv[-1]).write_bytes(b'partial')
+            raise subprocess.TimeoutExpired('scp',1)
+        with patch.object(desktop.subprocess,'run',side_effect=disconnect), self.assertRaises(subprocess.TimeoutExpired):
+            desktop.get_file(self.root,self.state,'summary.zip',dest,1)
+        self.assertFalse(dest.exists())
