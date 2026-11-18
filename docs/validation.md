@@ -58,3 +58,11 @@ No native `winhoo` image has been built or started yet. The following claims req
 4. Qualify a real application's silent installation and behavior in a derived image.
 
 The Windows 11 fallback setup remains prepared in `host/Prepare-WinhooHost.ps1`. It has not been applied: no optional host feature changes, Docker Desktop installation/license acceptance, or worker reboot have been performed.
+
+## Apple Silicon Windows desktop (2026-11-18)
+
+On a local M4 Max (macOS 26.6.2, QEMU 11.1.3, HVF), the controller deployed Windows 11 Pro ARM64 from the pinned 26100.4349 media, observed the WinPE handover and authenticated the dedicated console user after a cold boot. A consumer uploaded its pinned packages over the installed CLI, completed provisioning and confirmed guest shutdown. A later boot on the retained disk exposed a Windows playback endpoint (`Speakers (Audio Device)`, PnP status `OK`). The host received successful HTTP responses from the consumer's two loopback forwards. These are desktop lifecycle and transport observations; the consumer records its own application test results.
+
+`python -m unittest discover -s tests -v` includes host regressions for the per-instance monitor, ownership changes, transient FAT reads, cached media corruption and early QMP disconnect. Host tests do not exercise the Windows installer. Do not publish the private instance directory or the unattended installer as validation artifacts.
+
+The guest-local consumer subsequently passed its core block (four selected cases including NVDA speech and braille) and the previously failing actions-03 block (two selected cases). These were separate attempts. WinHoo retrieved each guest's reports over pinned SSH and confirmed Windows shutdown. A live read-only inspection during the second attempt reported the active Public profile, Windows script policy and the listening processes without interrupting the test. Removing the two old application forwards on the stopped guest preserved its disk, UUID and SSH port. The host suite now contains 56 tests.

@@ -14,3 +14,8 @@ winhoo = "winhoo:main"
 
 [tool.setuptools]
 py-modules = ["winhoo"]
+
+packages = ["winhoo_macos"]
+
+[tool.setuptools.package-data]
+winhoo_macos = ["*.xml", "*.ps1", "*.cmd", "*.ini"]
