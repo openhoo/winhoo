@@ -84,3 +84,25 @@ confirms a fresh shutdown before publishing the local copy. An active guest,
 a changed owner or an existing output file stops the operation. Collection
 also works when the console is locked. It does not launch the test again or establish that it passed; verify its report
 and attempt identity.
+
+### Collecting a test result directory
+
+Use `archive` when a test left a directory of reports, traces and attachments
+on the installed disk. After its producer has closed the files, on the running
+attested desktop:
+
+```sh
+winhoo desktop archive "$root/test" 'C:\ProgramData\MyRunner\attempts\example\results' attempt-example.zip
+winhoo desktop get "$root/test" attempt-example.zip ./attempt-example.zip
+shasum -a 256 ./attempt-example.zip
+```
+
+Compare the downloaded hash with the archive receipt. The source must be a
+local result directory under the test profile or a specific application in
+ProgramData. WinHoo uses the Windows tar shipped with the OS, changes to the
+result directory before walking it, and publishes the ZIP in the test profile
+only after it is complete. This handles long generated filenames that Windows
+PowerShell's .NET ZIP helper can reject. Archive creation will refuse an
+existing name or a concurrent guest writer. It never reruns the test. Keep
+archives private until you have reviewed their contents. A ZIP already staged
+on a stopped, cleanly shut down desktop can also be retrieved with `collect`.

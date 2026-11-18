@@ -154,6 +154,22 @@ class DesktopTests(unittest.TestCase):
         self.assertEqual(dest.read_bytes(),b'records')
         self.assertEqual(dest.stat().st_mode & 0o777,0o600)
 
+    def test_archive_requires_the_bound_guest_and_exact_archive_identity(self):
+        source = r"C:\ProgramData\Runner\result with user's quotes"
+        ok = {'owner':self.owner, 'name':'attempt.zip', 'bytes':317, 'sha256':'3'*64}
+        for change in ({}, {'owner':'other'}, {'name':'other.zip'}, {'bytes':0}, {'sha256':'missing'}):
+            with self.subTest(change=change), patch.object(desktop,'guest',
+                 return_value=subprocess.CompletedProcess([],0,json.dumps({**ok,**change}),'')) as guest:
+                if change:
+                    with self.assertRaisesRegex(ValueError,'receipt'):
+                        desktop.archive_results(self.root,self.state,source,'attempt.zip',10)
+                else:
+                    self.assertEqual(desktop.archive_results(self.root,self.state,source,'attempt.zip',10),ok)
+                self.assertNotIn(source,guest.call_args.args[2])  # data, never PowerShell code
+        with patch.object(desktop,'guest') as guest,self.assertRaisesRegex(ValueError,'basename'):
+            desktop.archive_results(self.root,self.state,source,'../x.zip',10)
+        guest.assert_not_called()
+
     def test_incomplete_download_is_never_visible_as_a_result(self):
         dest = self.root/'summary.zip'
         self.state['sshPort'] = 2226
@@ -168,7 +184,7 @@ class DesktopTests(unittest.TestCase):
         with desktop.operation_lock(self.root,'exec'):
             for op in ('inspect','get'):
                 with self.subTest(op=op),desktop.operation_lock(self.root,op): pass
-            for op in ('exec','put','up','down','wait'):
+            for op in ('exec','put','archive','up','down','wait'):
                 with self.subTest(op=op),self.assertRaisesRegex(ValueError,'lifecycle'):
                     with desktop.operation_lock(self.root,op): pass
         with desktop.operation_lock(self.root,'down'),self.assertRaisesRegex(ValueError,'lifecycle'):
