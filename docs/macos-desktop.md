@@ -126,9 +126,24 @@ transport rather than the GUI, creates a new archive, verifies the downloaded
 bytes and publishes the local file only after the same guest has shut down.
 A running QEMU process is not evidence that Windows SSH is ready.
 
+### Checking which application has the keyboard
+
 An active console and a responding browser debugging port do not identify the
-foreground **application**. For example, after restarting the browser during
-a screen reader language change, real F6 presses cycled through Explorer's
-Start, Search and Desktop controls. Preserve a foreground window when restarting
-an unrelated helper. Confirm the application's native focus from the interactive
-session before sending navigation keys. The SSH service runs in session 0.
+foreground application. In a real screen reader language switch, F6 cycled
+through Explorer's Start, Search and Desktop controls while Chrome was running.
+Preserve the browser window when restarting an unrelated helper.
+
+On a running, attested desktop use:
+
+```sh
+winhoo desktop foreground "$root/test"
+# browser_pid is the Windows PID of the browser that owns the expected window.
+winhoo desktop foreground "$root/test" --expect-pid "$browser_pid"
+```
+
+The command samples the unlocked physical console through a temporary,
+limited task running as the dedicated test user. It reports the process name,
+PID and session. It opens no window, sends no input, and does not read window
+titles. It can run while a test owns the guest. A different PID, a locked
+desktop, a session switch or a missing foreground window fails the check.
+This describes the instant sampled; another application can take focus later.
