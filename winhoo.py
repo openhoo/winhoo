@@ -514,6 +514,8 @@ def parser() -> argparse.ArgumentParser:
     root.add_argument("--host-ssh-config", type=Path, help="Private host SSH config for Docker and the guest jump host (macOS/Linux); saved per instance.")
     root.add_argument("--state-dir", type=Path, default=ROOT / ".local", help="Private per-instance state directory.")
     commands = root.add_subparsers(dest="command", required=True)
+    from winhoo_macos import arguments as desktop_arguments
+    desktop_arguments(commands.add_parser("desktop", help="Operate an owned Windows desktop VM on Apple Silicon."))
     commands.add_parser("doctor", help="Check the selected native Windows container engine.")
     build = commands.add_parser("build", help="Build the reusable base image.")
     build.add_argument("--image", default=DEFAULT_IMAGE)
@@ -558,6 +560,17 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = parser().parse_args(argv)
+    if arguments.command == "desktop":
+        from winhoo_macos import dispatch
+        try:
+            result = dispatch(arguments)
+            if isinstance(result, int):
+                return result
+            print(json.dumps(result, indent=2))
+            return 0
+        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+            print(f"winhoo desktop: {exc}", file=sys.stderr)
+            return 1
     controller = Controller(arguments.context, arguments.state_dir, host_ssh_config=arguments.host_ssh_config)
     try:
         if arguments.command == "doctor":

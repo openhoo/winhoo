@@ -2,7 +2,7 @@
 
 A reusable **native Windows container** for automated software installation and testing. Start a disposable instance, copy an application in, install it silently, and operate it over real SSH and PowerShell.
 
-The agreed scope is command-line applications, silent installers, and services. Native Windows containers do not provide an interactive Windows desktop or RDP.
+Use the container for command-line applications, silent installers, and services. For software that needs an interactive console, `winhoo desktop` runs a separate [Windows 11 ARM64 desktop directly on an Apple Silicon Mac](docs/macos-desktop.md). Its disk stays on the Mac and does not require a container engine or another host.
 
 ## What's included
 
