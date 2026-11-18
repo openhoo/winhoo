@@ -1,7 +1,7 @@
 """Local Windows desktop lifecycle on Apple Silicon. No container or remote host."""
 import argparse
 import base64
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 import json
 import os
 from pathlib import Path
@@ -49,13 +49,23 @@ def owned_receipt(directory, name, field, state):
 
 
 @contextmanager
-def lifecycle(directory):
+def lifecycle(directory, *, shared=False, filename='lifecycle.lock'):
     import fcntl
-    with (directory / 'lifecycle.lock').open('a') as lock:
+    with (directory / filename).open('a') as lock:
         try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(lock, (fcntl.LOCK_SH if shared else fcntl.LOCK_EX) | fcntl.LOCK_NB)
         except BlockingIOError:
             raise ValueError('Another desktop lifecycle operation owns this instance') from None
+        yield
+
+
+@contextmanager
+def operation_lock(directory, op):
+    # A long test may write guest state; allow observation, but never another
+    # command, upload or power transition on top of it.
+    with lifecycle(directory,shared=op in ('exec','put','get','inspect')), (
+        lifecycle(directory,filename='guest-operation.lock') if op in ('exec','put') else nullcontext()
+    ):
         yield
 
 
@@ -453,7 +463,7 @@ def dispatch(a):
         with Monitor(d, s) as q:
             q.send('screendump', filename=str(d / 'screen.ppm'))
         return {'path': str(d / 'screen.ppm')}
-    with lifecycle(d):
+    with operation_lock(d,op):
         s = read_state(d)
         if op == 'up':
             return up(d,s)

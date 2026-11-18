@@ -120,3 +120,13 @@ class DesktopTests(unittest.TestCase):
         with patch.object(desktop.subprocess,'run',side_effect=disconnect), self.assertRaises(subprocess.TimeoutExpired):
             desktop.get_file(self.root,self.state,'summary.zip',dest,1)
         self.assertFalse(dest.exists())
+
+    def test_foreground_command_allows_observation_but_blocks_writes_and_poweroff(self):
+        with desktop.operation_lock(self.root,'exec'):
+            for op in ('inspect','get'):
+                with self.subTest(op=op),desktop.operation_lock(self.root,op): pass
+            for op in ('exec','put','up','down','wait'):
+                with self.subTest(op=op),self.assertRaisesRegex(ValueError,'lifecycle'):
+                    with desktop.operation_lock(self.root,op): pass
+        with desktop.operation_lock(self.root,'down'),self.assertRaisesRegex(ValueError,'lifecycle'):
+            with desktop.operation_lock(self.root,'inspect'): pass
