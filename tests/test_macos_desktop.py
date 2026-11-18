@@ -166,3 +166,15 @@ class DesktopTests(unittest.TestCase):
              self.assertRaisesRegex(ValueError,'not confirmed'):
             desktop.collect(self.root,self.state,'result.zip',target,20)
         self.assertFalse(target.exists())
+
+    def test_new_boot_archives_shutdown_proof_without_authorizing_a_later_crash(self):
+        receipt={'uuid':self.owner,'shutdown':'guest-confirmed','timeUnix':4}
+        desktop.save(self.root/'shutdown.json',receipt)
+        desktop.archive_shutdown(self.root,self.state)
+        self.assertFalse((self.root/'shutdown.json').exists())
+        [archived]=(self.root/'shutdown-history').iterdir()
+        self.assertEqual(json.loads(archived.read_text()),receipt)
+        desktop.save(self.root/'shutdown.json',{**receipt,'uuid':'different-vm'})
+        with self.assertRaisesRegex(ValueError,'owner'):
+            desktop.archive_shutdown(self.root,self.state)
+        self.assertTrue((self.root/'shutdown.json').is_file())

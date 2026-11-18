@@ -50,6 +50,14 @@ def owned_receipt(directory, name, field, state):
     return True
 
 
+def archive_shutdown(directory, state):
+    if owned_receipt(directory,'shutdown.json','uuid',state):
+        history=directory/'shutdown-history'
+        history.mkdir(mode=0o700,exist_ok=True)
+        private(history)
+        (directory/'shutdown.json').rename(history/(uuid.uuid4().hex+'.json'))
+
+
 @contextmanager
 def lifecycle(directory, *, shared=False, filename='lifecycle.lock'):
     import fcntl
@@ -262,6 +270,9 @@ def up(d, state):
                     '-device', 'usb-storage,drive=setup,bootindex=2',
                     '-drive', 'if=none,id=receipt,format=raw,file=phases.img,cache=directsync',
                     '-device', 'usb-storage,drive=receipt,removable=on']
+        # After any new boot a previous clean stop no longer proves how this
+        # generation ended. Retain the old proof rather than accepting stale data.
+        archive_shutdown(d,state)
         with (d / 'qemu.log').open('ab') as log:
             subprocess.run(cmd, cwd=d, stdin=subprocess.DEVNULL, stdout=log, stderr=log, check=True, timeout=25)
     except BaseException:
