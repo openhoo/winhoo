@@ -50,3 +50,37 @@ winhoo desktop down "$root/test"
 - The emulated TPM stays enabled. Its optional PPI is disabled because it raised `HV_BAD_ARGUMENT` with HVF on the tested Mac. Windows gets a USB playback endpoint backed by silence; no host speaker or microphone access is needed.
 - `down` asks Windows to shut down, waits for QMP state `shutdown`, then asks QEMU to exit. QMP can disconnect before acknowledging `quit`. Success requires the original process to be gone as well. An unavailable monitor with a live PID blocks another start. A timeout leaves the disk in place. Reuse the instance on the next run.
 - On a laptop, keep the Mac awake with its lid open during long runs. Check `status` and the consumer's result after a suspend. An already-running process, a port that answers, and an old receipt do not by themselves prove that the interactive test passed.
+
+### Guest-local applications
+
+Check the actual Windows sockets before accepting a guest-local test service.
+For example, `winhoo desktop inspect "$root/test" --require-loopback 8700`
+fails if TCP 8700 is missing or if **any** of its listeners binds a non-loopback
+address. The service port need not be forwarded to the host. An application
+that relaunches through Windows UIAccess can lose its launcher's environment;
+use installation state owned by the test instance to scope its listener, then
+check the live IPv4 and IPv6 binds.
+
+When dispatching a native program from Windows PowerShell, pass a single fixed
+subcommand directly (for example `& $program status`). If building an argument
+list, keep it an array across conditional pipelines: a single result can become
+a scalar. Verify the program's actual argument count and exit code. In a desktop
+test this distinction affected the single-selector full suite even though the
+multi-argument diagnostic selector worked.
+
+### Recovering a finished report
+
+If Windows stops accepting new SSH sessions while a long test is still
+writing progress, retain its attempt ID and let the original run finish. If
+the final download failed, after a guest-confirmed shutdown run:
+
+```sh
+winhoo desktop collect "$root/test" finished-report.zip ./recovered-report.zip --timeout 180
+```
+
+This takes an exclusive lifecycle lock, boots the same installed disk,
+attests its console through the pinned key, downloads the existing file and
+confirms a fresh shutdown before publishing the local copy. An active guest,
+a changed owner or an existing output file stops the operation. Collection
+does not launch the test again or establish that it passed; verify its report
+and attempt identity.
