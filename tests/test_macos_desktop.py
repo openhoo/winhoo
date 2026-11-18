@@ -178,3 +178,25 @@ class DesktopTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'owner'):
             desktop.archive_shutdown(self.root,self.state)
         self.assertTrue((self.root/'shutdown.json').is_file())
+
+    @unittest.skipUnless(desktop.platform.system() == 'Darwin', 'macOS power assertions')
+    def test_idle_sleep_assertion_releases_with_the_owned_process(self):
+        import time
+        with subprocess.Popen(['/bin/sleep','15']) as owner:
+            guard = desktop.guard_idle_sleep(owner.pid)
+            try:
+                end=time.monotonic()+5
+                while time.monotonic()<end:
+                    info=subprocess.check_output(['/usr/bin/pmset','-g','assertions'],text=True)
+                    if any(f'pid {guard.pid}(caffeinate)' in l and 'PreventUserIdleSystemSleep' in l for l in info.splitlines()):
+                        break
+                    time.sleep(.1)
+                else:
+                    self.fail('macOS did not report the owned idle-sleep assertion')
+                owner.terminate()
+                owner.wait(timeout=3)
+                self.assertEqual(guard.wait(timeout=5),0)
+            finally:
+                if owner.poll() is None: owner.terminate()
+                if guard.poll() is None: guard.terminate()
+                guard.wait(timeout=3)
