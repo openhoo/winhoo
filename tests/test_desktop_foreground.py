@@ -37,3 +37,9 @@ class ForegroundTests(unittest.TestCase):
         ):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 self.observe({**self.sample, **change})
+
+    def test_transport_timeout_does_not_return_an_earlier_window(self):
+        with patch.object(desktop, 'guest', side_effect=subprocess.TimeoutExpired('ssh', 45)) as probe:
+            with self.assertRaisesRegex(ValueError, 'no window was confirmed'):
+                desktop.foreground(None, self.state)
+        probe.assert_called_once()

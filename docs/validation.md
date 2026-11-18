@@ -98,3 +98,17 @@ the boot and readiness probe share the same exclusive lock, distinguishes an
 unlocked console from authenticated transport, and rejects invalid timeouts
 before boot. The locked-console fixture also verifies that a failed wait leaves
 the running guest available for inspection.
+
+On the retained Windows 11 ARM64 desktop, `up --wait` reported the
+dedicated user on the active, unlocked physical console; `up --wait transport`
+also returned the authenticated guest identity. The first foreground sample
+identified Explorer in session 1, and a later sample identified Chrome after
+it started. Requiring Chrome's PID passed. Requiring Explorer's old PID failed
+and named Chrome. An independent process query confirmed Chrome's PID and
+session; no probe task or temporary directory remained. One separate SSH probe
+timed out during startup and produced no usable sample.
+
+The Windows CI job compiles and executes the shipped probe and verifies the
+GUI PE subsystem. The host suite checks stale and locked sessions, wrong PIDs,
+and ambiguous SSH timeouts (72 tests). An installed wheel contains both the
+dispatch script and the C# source.
