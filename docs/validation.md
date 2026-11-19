@@ -175,3 +175,14 @@ passive observation returned the same foreground PID after 8.509 seconds.
 These timings cover the wait after dispatch, not the full command or a
 screen reader test. Windows Task Scheduler history was disabled on this guest,
 so the earlier timeout cannot be attributed to a specific scheduler event.
+
+### November 19: Diagnosing a pause from the Mac
+
+With a Windows ARM64 qualification still holding the guest, the previous
+`desktop doctor` showed an open lid. The host had already resumed. Both
+`desktop doctor` and full `desktop status` now reported the kernel's last
+sleep at 14:04:10 UTC and wake at 14:10:11 UTC. These matched
+`kern.sleeptime` and `kern.waketime` on that Mac. The VM remained running
+with its guest operation held throughout the observation. This check read
+host state; it did not start another guest command. The 84 controller tests
+passed on macOS, including independent handling of missing events.

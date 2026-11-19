@@ -90,6 +90,13 @@ establish guest progress, successful completion, or permission to retry a
 timed-out command. For progress, read the original run log; for completion,
 check its result and shutdown receipt.
 
+If a long run has a gap in its output, compare its timestamps with
+`hostPower.lastSleepUtc` and `hostPower.lastWakeUtc` in `desktop doctor`
+or the full `desktop status`. These are the most recent sleep and wake events
+reported by the Mac, in UTC. Either can be `null` when the kernel has no
+record. The lid may already be open again. These two events cannot reconstruct
+earlier sleep cycles or establish how much progress Windows made.
+
 ## Installation and recovery
 
 - WinPE applies Windows with DISM and installs the UEFI boot files with BCDBoot. Before partitioning, the installer compares nonempty markers on two separate volumes and requires one empty QEMU NVMe. It does not clear or repartition a retained Windows disk. The pinned WinPE has `find.exe`, but lacks `findstr.exe`.

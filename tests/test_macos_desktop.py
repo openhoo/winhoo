@@ -14,6 +14,24 @@ import winhoo_macos as desktop
 from winhoo_macos import media
 
 
+class HostPowerTests(unittest.TestCase):
+    def test_named_kernel_events_are_reported_in_utc_independent_of_the_local_date_text(self):
+        output = ('kern.waketime: { sec = 1795097411, usec = 608801 } local date\n'
+                  'kern.sleeptime: { sec = 1795097050, usec = 339596 } local date\n')
+        with patch.object(subprocess, 'run', return_value=Mock(stdout=output)):
+            self.assertEqual(desktop.host_power_history(), {
+                'lastSleepUtc': '2026-11-19T14:04:10Z', 'lastWakeUtc': '2026-11-19T14:10:11Z'})
+
+    def test_missing_wake_does_not_discard_sleep_or_invent_an_interval(self):
+        for wake in ('', 'kern.waketime: { sec = 0, usec = 0 } Never\n', 'kern.waketime: unrecognized\n'):
+            output = 'kern.sleeptime: { sec = 1795097050, usec = 0 } date\n' + wake
+            with self.subTest(wake=wake), patch.object(subprocess, 'run', return_value=Mock(stdout=output, returncode=1)):
+                self.assertEqual(desktop.host_power_history(), {
+                    'lastSleepUtc': '2026-11-19T14:04:10Z', 'lastWakeUtc': None})
+        with patch.object(subprocess, 'run', side_effect=subprocess.TimeoutExpired('sysctl', 2)):
+            self.assertEqual(desktop.host_power_history(), {'lastSleepUtc': None, 'lastWakeUtc': None})
+
+
 class DesktopTests(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
