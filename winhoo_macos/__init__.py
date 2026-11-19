@@ -639,6 +639,8 @@ def arguments(parser):
             p.add_argument('--output', type=Path, help='Download and verify the ZIP before publishing this new local file')
         if op == 'collect':
             p.add_argument('--from-directory', help='Archive this completed Windows result directory after boot; use a fresh ZIP basename')
+            p.add_argument('--finish-running-owner', metavar='UUID',
+                           help='Recover a completed result directory on this already running desktop, then shut it down')
         if op in ('get','collect'):
             p.add_argument('basename', help='Regular file inside the dedicated user profile')
             p.add_argument('destination', type=Path, help='New local file; never overwrites evidence')
@@ -699,7 +701,8 @@ def dispatch(a):
         if op == 'wait':
             return wait(d,s,a.timeout)
         if op == 'collect':
-            return collect(d,s,a.basename,a.destination,a.timeout,source=a.from_directory)
+            return collect(d,s,a.basename,a.destination,a.timeout,source=a.from_directory,
+                           running_owner=a.finish_running_owner)
         if current(d,s) != 'running' or not owned_receipt(d,'installed.json','owner',s):
             raise ValueError('Run desktop wait to attest this instance first')
         if op == 'inspect':
@@ -770,22 +773,30 @@ def get_file(d, state, name, destination, timeout, *, archive=None):
         os.link(result,destination)  # Atomic publication, including a concurrent writer.
 
 
-def collect(d, state, name, destination, timeout, *, source=None):
-    """Recover finished files after a clean shutdown, without rerunning their producer."""
+def collect(d, state, name, destination, timeout, *, source=None, running_owner=None):
+    """Collect closed result files and confirm shutdown under the same lifecycle lock."""
     plain_filename(name)
     if source is not None and not name.lower().endswith('.zip'):
         raise ValueError('Expected a ZIP basename')
     check_destination(destination)
-    if current(d,state) != 'off' or not owned_receipt(d,'installed.json','owner',state):
-        raise ValueError('Collection requires a stopped, previously attested Windows desktop')
-    if not owned_receipt(d,'shutdown.json','uuid',state) or json.loads((d/'shutdown.json').read_text()).get('shutdown') != 'guest-confirmed':
-        raise ValueError('A confirmed shutdown of this desktop is required for collection')
+    if running_owner is not None:
+        if running_owner != state['uuid'] or source is None:
+            raise ValueError('Recovery requires the original desktop owner UUID and a completed result directory')
+        if current(d,state) != 'running' or not owned_receipt(d,'installed.json','owner',state):
+            raise ValueError('The named desktop must already be running and previously attested')
+    else:
+        if current(d,state) != 'off' or not owned_receipt(d,'installed.json','owner',state):
+            raise ValueError('Collection requires a stopped, previously attested Windows desktop')
+        if not owned_receipt(d,'shutdown.json','uuid',state) or json.loads((d/'shutdown.json').read_text()).get('shutdown') != 'guest-confirmed':
+            raise ValueError('A confirmed shutdown of this desktop is required for collection')
     with tempfile.TemporaryDirectory(dir=destination.parent) as temp:
         staged = Path(temp)/'complete'
-        active = up(d,state)
-        if active.get('state') != 'running' or active.get('uuid') != state['uuid']:
-            raise ValueError('Could not acquire the stopped desktop for collection')
+        if running_owner is None:
+            active = up(d,state)
+            if active.get('state') != 'running' or active.get('uuid') != state['uuid']:
+                raise ValueError('Could not acquire the stopped desktop for collection')
         archive = None
+        downloaded = False
         try:
             wait(d,state,timeout,interactive=False)
             if source is None:
@@ -793,11 +804,14 @@ def collect(d, state, name, destination, timeout, *, source=None):
             else:
                 archive = archive_results(d,state,source,name,timeout)
                 get_file(d,state,name,staged,timeout,archive=archive)
+            downloaded = True
         finally:
-            # down() revalidates the QMP identity; no forced poweroff on failure.
-            receipt = down(d,state,timeout)
-            if receipt.get('uuid') != state['uuid'] or receipt.get('shutdown') != 'guest-confirmed' or receipt.get('state') != 'off':
-                raise ValueError('Guest shutdown after collection was not confirmed')
+            # Leave an adopted guest running if attestation or transfer failed.
+            # A guest booted here is always ours to stop.
+            if running_owner is None or downloaded:
+                receipt = down(d,state,timeout)
+                if receipt.get('uuid') != state['uuid'] or receipt.get('shutdown') != 'guest-confirmed' or receipt.get('state') != 'off':
+                    raise ValueError('Guest shutdown after collection was not confirmed')
         os.link(staged,destination)
     return {'uuid':state['uuid'],'path':str(destination.resolve()),'shutdown':'guest-confirmed',
             **({'archive':archive} if archive is not None else {})}
