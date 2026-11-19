@@ -212,3 +212,14 @@ The submission regression rejects battery, UPS and unrecognized power
 sources before reserving a desktop. A launchd fixture on simulated AC verifies
 the recorded source; all 89 controller tests passed on macOS. A separate
 submission on the real Mac recorded `AC Power` and started a new job.
+
+### November 19: Handing a verified running desktop to the matrix
+
+After a cold foreground request timed out, Windows confirmed shutdown.
+On the next boot the owner and unlocked console were verified. A passive
+foreground observation took 4.71 seconds, and confirming the target Chrome
+window took 3.22 seconds. The job accepted that running owner's UUID and
+completed its first native block without another boot. This is a handoff
+check; the remaining matrix and shutdown are separate evidence. All 90
+controller tests passed on macOS, including rejection of a different owner,
+busy locks and a stopped VM.

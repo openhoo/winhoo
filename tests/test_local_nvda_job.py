@@ -15,6 +15,22 @@ from examples import local_nvda_job as jobs
 
 
 class NativeJobTests(unittest.TestCase):
+    def test_only_the_named_idle_running_desktop_can_be_adopted(self):
+        owner = str(uuid.uuid4())
+        live = {'uuid': owner, 'state': 'running', 'controllerLocks': {'lifecycle': 'free', 'guestOperation': 'free'}}
+        for other in (None, str(uuid.uuid4())):
+            with self.assertRaises(ValueError):
+                jobs.check_desktop(live, other)
+        with self.assertRaises(ValueError):
+            jobs.check_desktop({**live, 'state': 'off'}, owner)
+        for lock in live['controllerLocks']:
+            with self.assertRaisesRegex(ValueError, 'busy'):
+                jobs.check_desktop({**live, 'controllerLocks': {**live['controllerLocks'], lock: 'held'}}, owner)
+        self.assertEqual(jobs.check_desktop(live, owner), owner)
+        argv = jobs.configuration(Path('job'), Path('source'), Path('vm'), Path('winhoo'),
+                                  {'label':'test', 'candidate':'a'*40, 'adoptRunning':True})['ProgramArguments']
+        self.assertIn('--adopt-running', argv)
+
     def test_matrix_requires_confirmed_mains_before_reserving_the_desktop(self):
         for output in ("Now drawing from 'Battery Power'\n -InternalBattery-0 98%; discharging",
                        "Now drawing from 'UPS Power'\n", "no power source reported"):
