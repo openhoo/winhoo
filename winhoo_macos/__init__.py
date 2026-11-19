@@ -211,6 +211,7 @@ def create(d, args):
 
 class Monitor:
     def __init__(self, d, state):
+        self.shutdown_event = None
         self.sock = socket.socket(socket.AF_UNIX)
         self.sock.settimeout(4)
         try:
@@ -240,7 +241,10 @@ class Monitor:
         line = self.stream.readline(1024 * 1024)
         if not line:
             raise ConnectionError('QEMU monitor disconnected')
-        return json.loads(line)
+        message = json.loads(line)
+        if message.get('event') == 'SHUTDOWN':
+            self.shutdown_event = message.get('data')
+        return message
 
     def send(self, command, **kwargs):
         tag = uuid.uuid4().hex
@@ -558,6 +562,25 @@ def wait(d, s, timeout, *, interactive=True):
     raise ValueError(last + '; see status, screenshot, and the guest installation log')
 
 
+def request_windows_shutdown(d, s, timeout):
+    owner = str(uuid.UUID(s['uuid']))
+    account = s['account']
+    if not re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]{0,18}', account):
+        raise ValueError('Unexpected dedicated Windows account')
+    script = IDENTITY + f"if ($who.owner -cne '{owner}' -or $o.account -ine '{account}' -or $who.account -ine '{account}') {{ throw 'Different Windows shutdown owner' }}\n" + r"""
+& "$env:SystemRoot\System32\shutdown.exe" /s /t 0
+if ($LASTEXITCODE -ne 0) { throw 'Windows rejected the shutdown request' }
+@{owner=$who.owner;account=$who.account;accepted=$true} | ConvertTo-Json -Compress
+"""
+    result = guest(d,s,script,timeout=timeout,capture=True)
+    if result.returncode:
+        raise ValueError('Windows did not acknowledge shutdown; no power-button fallback was sent')
+    ack = json.loads(result.stdout)
+    if (ack.get('owner') != owner or (ack.get('account') or '').casefold() != account.casefold()
+            or ack.get('accepted') is not True):
+        raise ValueError('Windows shutdown acknowledgement does not identify this desktop')
+
+
 def down(d, s, timeout):
     if current(d, s) == 'off':
         return {'state': 'off', 'shutdown': 'already off'}
@@ -565,13 +588,25 @@ def down(d, s, timeout):
         pid = process_id(d)
         if pid is None:
             raise ValueError('Cannot confirm the monitored QEMU process id')
-        if q.send('query-status')['status'] != 'shutdown':
-            q.send('system_powerdown')
         end = time.monotonic() + timeout
+        method = 'previously-stopped'
+        if q.send('query-status')['status'] != 'shutdown':
+            if owned_receipt(d,'installed.json','owner',s):
+                # QMP system_powerdown alone can turn off an ARM virt machine
+                # without Windows ever receiving or completing a shutdown.
+                method = 'windows-shutdown'
+                request_windows_shutdown(d,s,min(20,max(.1,timeout)))
+            else:
+                method = 'installer-power-button'
+                q.send('system_powerdown')
         while q.send('query-status')['status'] != 'shutdown':
             if time.monotonic() >= end:
                 raise ValueError('Guest shutdown unconfirmed; disk and process retained')
             time.sleep(.5)
+        if method == 'windows-shutdown':
+            event = q.shutdown_event or {}
+            if event.get('guest') is not True or event.get('reason') != 'guest-shutdown':
+                raise ValueError('QEMU did not observe a guest-originated shutdown; process retained')
         try:
             q.send('quit')
         except (ConnectionError, BrokenPipeError):
@@ -585,7 +620,9 @@ def down(d, s, timeout):
         if time.monotonic() >= end:
             raise ValueError('Guest shut down but QEMU exit was not confirmed')
         time.sleep(.25)
-    info = {'state': 'off', 'uuid': s['uuid'], 'shutdown': 'guest-confirmed', 'timeUnix': time.time()}
+    info = {'state': 'off', 'uuid': s['uuid'], 'method':method,
+            'shutdown':'guest-confirmed' if method == 'windows-shutdown' else 'monitor-confirmed',
+            'timeUnix': time.time()}
     save(d / 'shutdown.json', info)
     return info
 

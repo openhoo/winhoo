@@ -179,14 +179,31 @@ class DesktopTests(unittest.TestCase):
             connect.return_value.__enter__.return_value = monitor
             yield monitor
 
-    def test_qmp_eof_on_quit_requires_guest_shutdown_and_original_pid_exit(self):
-        with self.shutdown_monitor([{'status':'running'}, {}, {'status':'shutdown'}, ConnectionResetError()],
+    def test_installed_windows_requests_its_own_shutdown_before_qemu_exits(self):
+        desktop.save(self.root/'installed.json', {'owner':self.owner})
+        with self.shutdown_monitor([{'status':'running'}, {'status':'shutdown'}, ConnectionResetError()],
                                    ['running','off','off']) as monitor, \
+             patch.object(desktop,'guest',return_value=Mock(returncode=0,stdout=json.dumps({'owner':self.owner,'account':'TestUser','accepted':True}))) as request, \
              patch.object(desktop,'alive',side_effect=[True, False]) as alive:
-            self.assertEqual(desktop.down(self.root,self.state,10)['shutdown'],'guest-confirmed')
+            monitor.shutdown_event = {'guest':True,'reason':'guest-shutdown'}
+            result = desktop.down(self.root,self.state,10)
+            self.assertEqual((result['shutdown'],result['method']),('guest-confirmed','windows-shutdown'))
+        self.assertIn('shutdown.exe',request.call_args.args[2])
         self.assertEqual([c.args[0] for c in monitor.send.call_args_list],
-                         ['query-status','system_powerdown','query-status','quit'])
+                         ['query-status','query-status','quit'])
         self.assertEqual([c.args[0] for c in alive.call_args_list],[9973,9973])
+
+    def test_host_power_event_or_failed_windows_request_cannot_confirm_a_clean_shutdown(self):
+        desktop.save(self.root/'installed.json', {'owner':self.owner})
+        for code,event in ((1,None),(0,{'guest':False,'reason':'host-signal'})):
+            with self.subTest(code=code), self.shutdown_monitor([{'status':'running'},{'status':'shutdown'}], ['running']) as monitor, \
+                 patch.object(desktop,'guest',return_value=Mock(returncode=code,stdout=json.dumps({'owner':self.owner,'account':'TestUser','accepted':True}))), \
+                 self.assertRaises(ValueError):
+                monitor.shutdown_event = event
+                desktop.down(self.root,self.state,10)
+            self.assertFalse((self.root/'shutdown.json').exists())
+            self.assertNotIn('system_powerdown',[c.args[0] for c in monitor.send.call_args_list])
+            self.assertNotIn('quit',[c.args[0] for c in monitor.send.call_args_list])
 
     def test_disconnect_before_shutdown_or_live_pid_cannot_issue_receipt(self):
         with self.shutdown_monitor([{'status':'running'}, {}, ConnectionResetError()],['running']), \
