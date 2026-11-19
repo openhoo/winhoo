@@ -154,3 +154,13 @@ Explorer. `focus-window` given the live browser PID and start time returned
 `caption-click`. An independent foreground probe then identified the same Chrome
 PID. A second activation returned `already-active`. A start time off by one
 tick and a process in the service session were both refused before activation.
+
+## Windows-confirmed shutdown on ARM64 (November 19, 2026)
+
+After successive QMP power-button shutdowns, Windows logged Kernel-Power 41 and
+EventLog 6008 at the next boot, even though the old controller had observed the
+emulator stop. On the same installed VM, an authenticated `shutdown.exe /s /t 0`
+returned success; QMP reported `guest=true, reason=guest-shutdown` after 8.9
+seconds. At the next boot Windows recorded the shutdown request (1074), event
+log stop (6006), and kernel shutdown (13), with no new 41 or 6008. The updated
+`desktop down` also completed on this guest with `method=windows-shutdown`.
