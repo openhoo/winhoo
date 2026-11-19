@@ -217,6 +217,13 @@ titles. It can run while a test owns the guest. A different PID, a locked
 desktop, a session switch or a missing foreground window fails the check.
 This describes the instant sampled; another application can take focus later.
 
+On a cold boot, Windows can report an unlocked console before its scheduled
+helper delivers a sample. Both foreground commands dispatch one helper and
+return as soon as its receipt arrives. `sampleWaitMs` reports that wait. After
+30 seconds without a receipt the check fails, stops the outstanding task, and
+reports the scheduler state and result if available. A task that has already
+exited without a receipt fails earlier. Activation is never replayed.
+
 To give a test application the keyboard **before** starting a long test,
 identify the actual window-owning process in the guest and run:
 

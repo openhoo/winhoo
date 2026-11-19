@@ -13,6 +13,7 @@ $before = Read-OwnedConsole
 $name = 'WinHoo-Foreground-' + $request.id
 $dir = (New-Item -Path (Join-Path $env:TEMP $name) -ItemType Directory -ErrorAction Stop).FullName
 $registered = $false
+$received = $false
 try {
     # The passive probe and the explicitly requested activation helper are
     # separate GUI executables; neither opens a console window.
@@ -26,16 +27,14 @@ try {
         if ($null -ne $request.startedTicks -and $ticks -ne [long]$request.startedTicks) { throw 'Target process has changed since discovery' }
         $action = New-ScheduledTaskAction -Execute $exe -Argument ("{0} {1}" -f $target.Id,$ticks)
     } else { $action = New-ScheduledTaskAction -Execute $exe }
-    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Seconds 10)
+    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Seconds 25)
     $null = Register-ScheduledTask -TaskName $name -Principal $principal -Action $action -Settings $settings
     $registered = $true
+    $requestedAt = Get-Date
     Start-ScheduledTask -TaskName $name
     $file = Join-Path $dir 'sample'
-    $timer = [Diagnostics.Stopwatch]::StartNew()
-    while (!(Test-Path -LiteralPath $file -PathType Leaf)) {
-        if ($timer.Elapsed.TotalSeconds -ge 12) { throw 'The interactive foreground probe did not return a sample' }
-        Start-Sleep -Milliseconds 100
-    }
+    $who.sampleWaitMs = Wait-WinHooForegroundSample $file $name $requestedAt
+    $received = $true
     $lines = [IO.File]::ReadAllLines($file)
     if ($request.mode -ceq 'focus') {
         if ($lines.Length -ne 4 -or $lines[3] -cnotin @('already-active','caption-click')) { throw 'No verified caption or foreground window for the requested process' }
@@ -47,7 +46,13 @@ try {
     $who.consoleSession = $after; $who.console = $after.account
     $who | ConvertTo-Json -Depth 3 -Compress
 } finally {
-    if ($registered) { Unregister-ScheduledTask -TaskName $name -Confirm:$false }
+    if ($registered) {
+        try {
+            if (!$received) { Stop-ScheduledTask -TaskName $name -ErrorAction Stop }
+        } finally {
+            Unregister-ScheduledTask -TaskName $name -Confirm:$false
+        }
+    }
     # The sample file can arrive just before the GUI executable exits.
     for ($try = 0; $try -lt 20; $try++) {
         try { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction Stop; break } catch {

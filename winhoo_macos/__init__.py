@@ -409,11 +409,11 @@ def foreground(directory, state, expected_pid=None, *, activate=False, started_t
     encoded = base64.b64encode(json.dumps(request).encode()).decode('ascii')
     script = CONSOLE + IDENTITY + (
         "$request = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + encoded + "')) | ConvertFrom-Json\n"
-    ) + Path(__file__).with_name('foreground.ps1').read_text(encoding='utf-8')
+    ) + Path(__file__).with_name('foreground-sample.ps1').read_text(encoding='utf-8') + '\n' + Path(__file__).with_name('foreground.ps1').read_text(encoding='utf-8')
     try:
-        result = guest(directory, state, script, timeout=45, capture=True)
+        result = guest(directory, state, script, timeout=50, capture=True)
     except subprocess.TimeoutExpired:
-        raise ValueError('Foreground observation timed out after 45 seconds; no window was confirmed') from None
+        raise ValueError('Foreground observation timed out after 50 seconds; no window was confirmed') from None
     if result.returncode:
         lines = [line.strip() for line in result.stderr.splitlines() if line.strip() and not line.startswith(('#< CLIXML', '<Objs '))]
         raise ValueError('Could not observe the foreground: ' + next(iter(lines), 'no diagnostic')[:300])
