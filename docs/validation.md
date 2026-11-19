@@ -223,3 +223,8 @@ completed its first native block without another boot. This is a handoff
 check; the remaining matrix and shutdown are separate evidence. All 90
 controller tests passed on macOS, including rejection of a different owner,
 busy locks and a stopped VM.
+
+The same local matrix had reported 15 completed blocks while its host receipt
+still said `starting`. Reading its existing evidence with the updated status
+command returned `matrix-started`, the current block and the original receipt
+state without contacting Windows. All 91 controller tests passed on macOS.
