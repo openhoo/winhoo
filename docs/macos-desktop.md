@@ -299,7 +299,10 @@ alone establishes neither observation.
 
 From a WinHoo source checkout, submit the HooSaidThat matrix to the logged-in
 Mac user's launchd. Select a clean HooSaidThat checkout, a provisioned desktop
-that is off, and a new private job directory. Keep the checkout at that commit
+that is off, and a new private job directory. Connect the Mac to mains power:
+the matrix checks the active power source before reserving the desktop.
+An idle-sleep assertion cannot prevent macOS from hibernating on low battery.
+Keep the checkout at that commit
 until the job finishes. Use the installed controller that provisioned the VM.
 
 ```sh
@@ -315,6 +318,10 @@ refused while the first awaits a final host receipt. This does not survive a
 Mac logout, and closing the lid can suspend the guest. If submission is
 interrupted, inspect the original job and its launchd label in `job.json`.
 Keep its directory until the next job has started.
+
+`status` also reports the current power source during a run; keep the charger
+connected. After a host hibernation, keep the failed attempt and its shutdown
+receipt. A release requires a fresh, complete matrix on the same commit.
 
 `reportedBlocks` counts complete log lines. A recovered guest failure is
 reported as `guest-reported-failure`; a zero guest exit code with no final host

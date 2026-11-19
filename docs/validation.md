@@ -200,3 +200,15 @@ actions-08 block. The recovered guest result matched the attempt, owner and
 input bundle and contained exit code 1. The host receipt still said
 `starting`. The command reported `guest-reported-failure` and did not turn
 the partial evidence into a passing matrix.
+
+### November 19: Power source before a local matrix
+
+The host power log recorded `Low Power Sleep` at 1% charge. The Mac woke
+213 seconds later when power was connected. The native job had completed
+14 blocks; the next screen reader request timed out. Windows subsequently
+confirmed shutdown. This attempt did not qualify the candidate.
+
+The submission regression rejects battery, UPS and unrecognized power
+sources before reserving a desktop. A launchd fixture on simulated AC verifies
+the recorded source; all 89 controller tests passed on macOS. A separate
+submission on the real Mac recorded `AC Power` and started a new job.

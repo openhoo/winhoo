@@ -21,6 +21,21 @@ def read_json(path):
     return json.loads(path.read_text(encoding='utf-8-sig'))
 
 
+def power_source(output):
+    # pmset reports the active source even on desktop Macs without a battery.
+    match = re.search(r"^Now drawing from '(AC Power|Battery Power|UPS Power)'\s*$", output, re.M)
+    return match[1] if match else 'unknown'
+
+
+def read_power_source():
+    try:
+        output = subprocess.check_output(['/usr/bin/pmset', '-g', 'batt'], text=True, timeout=5,
+                                         env={**os.environ, 'LC_ALL': 'C'}, stderr=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        return 'unknown'
+    return power_source(output)
+
+
 def progress(evidence):
     """Log markers are progress hints. A reader can see a partially written last line."""
     passed, current = set(), None
@@ -114,6 +129,9 @@ def submit(job, source, desktop, winhoo, candidate):
         raise ValueError('Submit from the logged-in macOS account')
     if not re.fullmatch('[0-9a-f]{40}', candidate):
         raise ValueError('A full candidate commit is required')
+    power = read_power_source()
+    if power != 'AC Power':
+        raise ValueError(f'Connect the Mac to AC power before starting the NVDA matrix (current source: {power})')
     source, desktop = source.resolve(strict=True), desktop.resolve(strict=True)
     # Preserve the venv entry point selected by the caller.
     selected = shutil.which(winhoo)
@@ -128,7 +146,7 @@ def submit(job, source, desktop, winhoo, candidate):
         live = json.loads(subprocess.check_output([str(winhoo), 'desktop', 'status', str(desktop)], timeout=30))
         if live['state'] != 'off' or any(live['controllerLocks'][k] != 'free' for k in ('lifecycle', 'guestOperation')):
             raise ValueError('An idle, powered-off desktop is required; inspect the original job')
-        plan = {'candidate': candidate, 'owner': str(uuid.UUID(live['uuid'])),
+        plan = {'candidate': candidate, 'owner': str(uuid.UUID(live['uuid'])), 'powerAtSubmit': power,
                 'label': 'dev.openhoo.winhoo.nvda.' + uuid.uuid4().hex}
         job.mkdir(mode=0o700)
         (job / 'job.json').write_text(json.dumps(plan, indent=2) + '\n')
@@ -157,6 +175,10 @@ def main():
     if job != job.resolve():
         raise ValueError('Use a canonical job path without symbolic links')
     result = status(job) if args.command == 'status' else submit(job, args.source, args.desktop, args.winhoo, args.candidate)
+    if args.command == 'status' and sys.platform == 'darwin' and result['state'] not in ('passed', 'failed'):
+        result['currentHostPower'] = read_power_source()
+        if result['currentHostPower'] != 'AC Power':
+            result['powerWarning'] = 'Check AC power; macOS can suspend the guest on low battery.'
     print(json.dumps(result, indent=2))
 
 
