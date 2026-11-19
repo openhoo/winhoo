@@ -15,6 +15,31 @@ from examples import local_nvda_job as jobs
 
 
 class NativeJobTests(unittest.TestCase):
+    def test_start_receipt_distinguishes_log_progress_from_a_verified_result(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            job = Path(tmp)
+            receipt = {'desktop': {'uuid': str(uuid.uuid4())}, 'source': {'candidate': 'a' * 40},
+                       'state': 'starting', 'mode': 'matrix', 'operation': 'run',
+                       'passedBlocks': 0, 'shutdown': 'pending'}
+            (job / 'receipt.json').write_text(json.dumps(receipt))
+            log = job / 'run.log'
+            log.write_text('Starting NVDA parity en-US/desktop/core')
+            self.assertEqual(jobs.status(job)['state'], 'starting')
+            with log.open('a') as handle:
+                handle.write('\n')
+            current = jobs.status(job)
+            self.assertEqual((current['state'], current['hostReceiptState'], current['reportedBlocks']),
+                             ('matrix-started', 'starting', 0))
+            cells = (f'{locale}/{layout}/{block}' for locale in ('en-US', 'de-DE')
+                     for layout in ('desktop', 'laptop')
+                     for block in ('core', *(f'actions-{n:02}' for n in range(1, 9)), 'settings'))
+            log.write_text(''.join(f'Passed NVDA parity {cell} in 1.0s\n' for cell in cells))
+            done = jobs.status(job)
+            self.assertEqual((done['state'], done['reportedBlocks'], done['receiptBlocks'], done['shutdown']),
+                             ('awaiting-guest-result', 40, 0, 'pending'))
+            (job / 'receipt.json').write_text(json.dumps({**receipt, 'state': 'failed'}))
+            self.assertEqual(jobs.status(job)['state'], 'failed')
+
     def test_only_the_named_idle_running_desktop_can_be_adopted(self):
         owner = str(uuid.uuid4())
         live = {'uuid': owner, 'state': 'running', 'controllerLocks': {'lifecycle': 'free', 'guestOperation': 'free'}}

@@ -88,6 +88,10 @@ def status(job):
             raise ValueError('The recovered guest result is not for the original attempt')
         result.update(hostReceiptState=receipt['state'], guestExitCode=actual['exitCode'],
                       state='guest-reported-failure' if actual['exitCode'] else 'awaiting-host-verification')
+    elif receipt['state'] == 'starting' and (result['unfinishedLogBlock'] or result['reportedBlocks']):
+        # Log markers show where the attempt got to; only the host can confirm success.
+        result.update(hostReceiptState='starting', state='awaiting-guest-result'
+                      if result['reportedBlocks'] == 40 else 'matrix-started')
     return result
 
 

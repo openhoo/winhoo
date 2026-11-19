@@ -330,7 +330,12 @@ job owns shutdown and runs every block from the beginning.
 connected. After a host hibernation, keep the failed attempt and its shutdown
 receipt. A release requires a fresh, complete matrix on the same commit.
 
-`reportedBlocks` counts complete log lines. A recovered guest failure is
+`reportedBlocks` counts distinct blocks with a complete pass line. After the
+first block starts, `matrix-started` shows that the guest began testing, even
+if the host receipt still says `starting`. This is the last observed progress;
+it does not prove that the guest is still online. After all 40 pass lines,
+`awaiting-guest-result` means the guest's exit code is still unknown.
+A recovered guest failure is
 reported as `guest-reported-failure`; a zero guest exit code with no final host
 receipt is `awaiting-host-verification`. The host's final receipt, per-block
 test reports, and guest shutdown are needed to qualify a release. The same
