@@ -2,6 +2,7 @@
 import argparse
 import base64
 from contextlib import contextmanager, nullcontext
+from datetime import datetime, timezone
 import json
 import hashlib
 import ipaddress
@@ -146,7 +147,29 @@ def doctor():
     for name in ('edk2-aarch64-code.fd', 'edk2-arm-vars.fd'):
         if not (firmware / name).is_file():
             raise ValueError(f'Missing UEFI firmware: {name}')
-    return {'backend': 'hvf', 'host': 'macOS arm64', 'firmware': str(firmware), 'lid': lid_state()}
+    return {'backend': 'hvf', 'host': 'macOS arm64', 'firmware': str(firmware), 'lid': lid_state(),
+            'hostPower': host_power_history()}
+
+
+def host_power_history():
+    """Read the last two host power events independently; either may be unavailable."""
+    events = {'lastSleepUtc': None, 'lastWakeUtc': None}
+    try:
+        # Keep the sysctl names: a host may expose only one value. The date
+        # after the timeval is formatted for the local time zone.
+        sample = subprocess.run(['/usr/sbin/sysctl', 'kern.sleeptime', 'kern.waketime'],
+                                capture_output=True, encoding='utf-8', errors='replace', timeout=2)
+    except (OSError, subprocess.SubprocessError):
+        return events
+    for line in sample.stdout.splitlines():
+        event = re.match(r'^kern\.(sleep|wake)time:\s*\{\s*sec\s*=\s*([1-9][0-9]{0,11}),\s*usec\s*=\s*[0-9]{1,6}\s*\}', line)
+        if event:
+            try:
+                instant = datetime.fromtimestamp(int(event[2]), timezone.utc)
+            except (OverflowError, OSError, ValueError):
+                continue
+            events['lastSleepUtc' if event[1] == 'sleep' else 'lastWakeUtc'] = instant.strftime('%Y-%m-%dT%H:%M:%SZ')
+    return events
 
 
 def lid_state():
@@ -738,7 +761,7 @@ def dispatch(a):
             stage = 'receipt-unavailable'
         return {'uuid': s['uuid'], 'state': state, 'installed': owned_receipt(d,'installed.json','owner',s),
                 'deployment': stage, 'forwards': s['ports'],
-                'controllerLocks': controller_locks(d)}
+                'controllerLocks': controller_locks(d), 'hostPower': host_power_history()}
     if op == 'screenshot':
         s = read_state(d)
         with Monitor(d, s) as q:
