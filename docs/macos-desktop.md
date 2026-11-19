@@ -319,6 +319,13 @@ Mac logout, and closing the lid can suspend the guest. If submission is
 interrupted, inspect the original job and its launchd label in `job.json`.
 Keep its directory until the next job has started.
 
+If you started this dedicated desktop for diagnostics and already verified
+its Windows console and Chrome window, you can hand it to one new matrix
+without a second cold boot. Add `--running-owner UUID` to `start` using the
+owner of that diagnostic session. The desktop must be running, both locks
+must be free, and any previous matrix must have finished shutdown. The new
+job owns shutdown and runs every block from the beginning.
+
 `status` also reports the current power source during a run; keep the charger
 connected. After a host hibernation, keep the failed attempt and its shutdown
 receipt. A release requires a fresh, complete matrix on the same commit.

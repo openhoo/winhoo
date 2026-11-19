@@ -95,7 +95,8 @@ def configuration(job, source, desktop, winhoo, plan):
     return {'Label': plan['label'], 'RunAtLoad': True, 'KeepAlive': False, 'Umask': 0o077,
             'ProgramArguments': [sys.executable, str(source / 'oracle/windows-nvda/winhoo-local.py'),
                                  'run', '--desktop', str(desktop), '--candidate', plan['candidate'],
-                                 '--mode', 'matrix', '--evidence', str(job / 'evidence')],
+                                 '--mode', 'matrix', '--evidence', str(job / 'evidence'),
+                                 *(['--adopt-running'] if plan.get('adoptRunning') else [])],
             'WorkingDirectory': str(source),
             'EnvironmentVariables': {'HST_WINHOO_BIN': str(winhoo), 'PATH': os.environ['PATH']},
             'StandardOutPath': str(job / 'host.log'), 'StandardErrorPath': str(job / 'host-errors.log')}
@@ -124,7 +125,19 @@ def reserve(desktop, job):
         yield record
 
 
-def submit(job, source, desktop, winhoo, candidate):
+def check_desktop(live, running_owner):
+    owner = str(uuid.UUID(live['uuid']))
+    if any(live['controllerLocks'][k] != 'free' for k in ('lifecycle', 'guestOperation')):
+        raise ValueError('The desktop controller is busy; inspect its original operation')
+    if running_owner is None:
+        if live['state'] != 'off':
+            raise ValueError('An idle, powered-off desktop is required; inspect the original job')
+    elif live['state'] != 'running' or running_owner != owner:
+        raise ValueError('The running desktop must match the supplied owner UUID')
+    return owner
+
+
+def submit(job, source, desktop, winhoo, candidate, *, running_owner=None):
     if sys.platform != 'darwin' or os.getuid() == 0:
         raise ValueError('Submit from the logged-in macOS account')
     if not re.fullmatch('[0-9a-f]{40}', candidate):
@@ -144,9 +157,9 @@ def submit(job, source, desktop, winhoo, candidate):
         raise ValueError('The selected HooSaidThat checkout must be clean and at the candidate')
     with reserve(desktop, job) as record:
         live = json.loads(subprocess.check_output([str(winhoo), 'desktop', 'status', str(desktop)], timeout=30))
-        if live['state'] != 'off' or any(live['controllerLocks'][k] != 'free' for k in ('lifecycle', 'guestOperation')):
-            raise ValueError('An idle, powered-off desktop is required; inspect the original job')
-        plan = {'candidate': candidate, 'owner': str(uuid.UUID(live['uuid'])), 'powerAtSubmit': power,
+        owner = check_desktop(live, running_owner)
+        plan = {'candidate': candidate, 'owner': owner, 'powerAtSubmit': power,
+                'adoptRunning': running_owner is not None,
                 'label': 'dev.openhoo.winhoo.nvda.' + uuid.uuid4().hex}
         job.mkdir(mode=0o700)
         (job / 'job.json').write_text(json.dumps(plan, indent=2) + '\n')
@@ -168,13 +181,14 @@ def main():
     start.add_argument('--source', type=Path, required=True)
     start.add_argument('--desktop', type=Path, required=True)
     start.add_argument('--candidate', required=True)
+    start.add_argument('--running-owner', metavar='UUID', help='Adopt your already running diagnostic desktop with this exact owner; the job will shut it down')
     start.add_argument('--winhoo', default='winhoo')
     subs.add_parser('status').add_argument('job', type=Path)
     args = parser.parse_args()
     job = args.job.expanduser().absolute()
     if job != job.resolve():
         raise ValueError('Use a canonical job path without symbolic links')
-    result = status(job) if args.command == 'status' else submit(job, args.source, args.desktop, args.winhoo, args.candidate)
+    result = status(job) if args.command == 'status' else submit(job, args.source, args.desktop, args.winhoo, args.candidate, running_owner=args.running_owner)
     if args.command == 'status' and sys.platform == 'darwin' and result['state'] not in ('passed', 'failed'):
         result['currentHostPower'] = read_power_source()
         if result['currentHostPower'] != 'AC Power':
