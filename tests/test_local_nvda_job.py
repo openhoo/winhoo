@@ -8,12 +8,24 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 import uuid
 
 from examples import local_nvda_job as jobs
 
 
 class NativeJobTests(unittest.TestCase):
+    def test_matrix_requires_confirmed_mains_before_reserving_the_desktop(self):
+        for output in ("Now drawing from 'Battery Power'\n -InternalBattery-0 98%; discharging",
+                       "Now drawing from 'UPS Power'\n", "no power source reported"):
+            with self.subTest(output=output), patch.object(jobs, 'read_power_source', return_value=jobs.power_source(output)), \
+                 patch.object(jobs.sys, 'platform', 'darwin'), patch.object(jobs.os, 'getuid', return_value=501), \
+                 patch.object(jobs, 'reserve') as reserve:
+                with self.assertRaisesRegex(ValueError, 'AC power'):
+                    jobs.submit(Path('job'), Path('source'), Path('vm'), 'winhoo', 'a' * 40)
+                reserve.assert_not_called()
+        self.assertEqual(jobs.power_source("Now drawing from 'AC Power'\n"), 'AC Power')
+
     @unittest.skipUnless(sys.platform == 'darwin' and os.getuid() != 0, 'requires the macOS user launchd domain')
     def test_launchd_submits_once_without_starting_windows(self):
         if subprocess.run(['/bin/launchctl','print',f'gui/{os.getuid()}'], stdout=subprocess.DEVNULL,
@@ -40,7 +52,9 @@ class NativeJobTests(unittest.TestCase):
             git('-c','user.name=Fixture','-c','user.email=fixture@example.invalid',
                 '-c','core.hooksPath=/dev/null','-c','commit.gpgsign=false','commit','-qm','Fixture')
             sha = git('rev-parse','HEAD')
-            result = jobs.submit(job, source, vm, str(cli), sha)
+            with patch.object(jobs, 'read_power_source', return_value='AC Power'):
+                result = jobs.submit(job, source, vm, str(cli), sha)
+            self.assertEqual(jobs.read_json(job/'job.json')['powerAtSubmit'], 'AC Power')
             domain = f'gui/{os.getuid()}'
             try:
                 deadline = time.monotonic() + 15
@@ -52,7 +66,7 @@ class NativeJobTests(unittest.TestCase):
                 conf = plistlib.loads((job/'job.plist').read_bytes())
                 self.assertEqual(conf['EnvironmentVariables']['HST_WINHOO_BIN'], str(cli))
                 self.assertFalse(conf['KeepAlive'])
-                with self.assertRaisesRegex(ValueError,'still owns'):
+                with patch.object(jobs, 'read_power_source', return_value='AC Power'), self.assertRaisesRegex(ValueError,'still owns'):
                     jobs.submit(root/'another-job',source,vm,str(cli),sha)
                 self.assertFalse((root/'another-job').exists())
             finally:
