@@ -19,10 +19,22 @@ class ForegroundTests(unittest.TestCase):
             'console': r'TEST\TestUser', 'session': 1, 'pid': 37, 'process': 'explorer',
         }
 
-    def observe(self, sample, expected=None):
+    def observe(self, sample, expected=None, **kwargs):
         reply = subprocess.CompletedProcess([], 0, json.dumps(sample), '')
         with patch.object(desktop, 'guest', return_value=reply), patch.object(desktop.uuid, 'uuid4', return_value=self.request):
-            return desktop.foreground(None, self.state, expected)
+            return desktop.foreground(None, self.state, expected, **kwargs)
+
+    def test_focus_requires_proof_of_activation_from_the_requested_process(self):
+        for method in ('already-active','caption-click'):
+            sample = {**self.sample,'method':method}
+            self.assertEqual(self.observe(sample,37,activate=True),sample)
+            with self.assertRaisesRegex(ValueError,'expected PID 42'):
+                self.observe(sample,42,activate=True)
+        with self.assertRaisesRegex(ValueError,'did not confirm'):
+            self.observe(self.sample,37,activate=True)
+        for pid,ticks in ((None,None),(-1,None),(37,0)):
+            with self.subTest(pid=pid,ticks=ticks), self.assertRaises(ValueError):
+                self.observe(self.sample,pid,activate=True,started_ticks=ticks)
 
     def test_rejects_explorer_when_the_browser_was_expected(self):
         self.assertEqual(self.observe(self.sample, 37), self.sample)

@@ -22,6 +22,14 @@ try {
     } elseif ($rows.Length -eq 3 -and [int]$rows[0] -gt 0 -and [int]$rows[1] -gt 0 -and $rows[2]) {
         Write-Output 'Probe sampled a foreground process in an interactive session.'
     } else { throw 'Invalid foreground sample' }
+    Remove-Item -LiteralPath (Join-Path $dir 'sample')
+    $focus = Join-Path $dir 'focus.exe'
+    Add-Type -OutputAssembly $focus -OutputType WindowsApplication -TypeDefinition ([IO.File]::ReadAllText((Join-Path $src 'focus-caption.cs')))
+    # A missing process identity must never send input, including on a runner
+    # with an interactive desktop.
+    $p = Start-Process -FilePath $focus -PassThru
+    if (!$p.WaitForExit(5000) -or $p.ExitCode -ne 1) {throw 'Activation without a target was not refused'}
+    if ([IO.File]::ReadAllLines((Join-Path $dir 'sample')).Length -ne 0) {throw 'Unexpected activation receipt'}
 } finally {
     Remove-Item -LiteralPath $dir -Recurse -Force
 }

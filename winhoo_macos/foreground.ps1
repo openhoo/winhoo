@@ -14,12 +14,18 @@ $name = 'WinHoo-Foreground-' + $request.id
 $dir = (New-Item -Path (Join-Path $env:TEMP $name) -ItemType Directory -ErrorAction Stop).FullName
 $registered = $false
 try {
-    # A console-subsystem probe can itself acquire the foreground. This
-    # one-shot Windows application has no window, input code or arguments.
+    # The passive probe and the explicitly requested activation helper are
+    # separate GUI executables; neither opens a console window.
     $exe = Join-Path $dir 'foreground.exe'
     Add-Type -OutputAssembly $exe -OutputType WindowsApplication -TypeDefinition $request.probeSource
     $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
-    $action = New-ScheduledTaskAction -Execute $exe
+    if ($request.mode -ceq 'focus') {
+        $target = Get-Process -Id ([int]$request.pid) -ErrorAction Stop
+        if ($target.SessionId -ne $before.id -or $target.HasExited) { throw 'Target is not on the dedicated active console' }
+        $ticks = $target.StartTime.ToUniversalTime().Ticks
+        if ($null -ne $request.startedTicks -and $ticks -ne [long]$request.startedTicks) { throw 'Target process has changed since discovery' }
+        $action = New-ScheduledTaskAction -Execute $exe -Argument ("{0} {1}" -f $target.Id,$ticks)
+    } else { $action = New-ScheduledTaskAction -Execute $exe }
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Seconds 10)
     $null = Register-ScheduledTask -TaskName $name -Principal $principal -Action $action -Settings $settings
     $registered = $true
@@ -31,7 +37,10 @@ try {
         Start-Sleep -Milliseconds 100
     }
     $lines = [IO.File]::ReadAllLines($file)
-    if ($lines.Length -ne 3) { throw 'No stable foreground window in the active session' }
+    if ($request.mode -ceq 'focus') {
+        if ($lines.Length -ne 4 -or $lines[3] -cnotin @('already-active','caption-click')) { throw 'No verified caption or foreground window for the requested process' }
+        $who.method = $lines[3]
+    } elseif ($lines.Length -ne 3) { throw 'No stable foreground window in the active session' }
     $after = Read-OwnedConsole
     if ($after.id -ne $before.id -or [int]$lines[0] -ne $before.id) { throw 'Console session changed during observation' }
     $who.request = $request.id; $who.session = [int]$lines[0]; $who.pid = [int]$lines[1]; $who.process = $lines[2]
