@@ -9,6 +9,10 @@ function Read-OwnedConsole {
     return $s
 }
 if ($who.owner -cne $request.owner -or $who.account -ine $request.account) { throw 'Different desktop owner' }
+function Write-ForegroundPhase([string]$phase) {
+    [Console]::Error.WriteLine("winhoo-foreground:$($request.id):$phase")
+}
+Write-ForegroundPhase 'console'
 $before = Read-OwnedConsole
 $name = 'WinHoo-Foreground-' + $request.id
 $dir = (New-Item -Path (Join-Path $env:TEMP $name) -ItemType Directory -ErrorAction Stop).FullName
@@ -18,6 +22,7 @@ try {
     # The passive probe and the explicitly requested activation helper are
     # separate GUI executables; neither opens a console window.
     $exe = Join-Path $dir 'foreground.exe'
+    Write-ForegroundPhase 'compile'
     Add-Type -OutputAssembly $exe -OutputType WindowsApplication -TypeDefinition $request.probeSource
     $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
     if ($request.mode -ceq 'focus') {
@@ -28,13 +33,17 @@ try {
         $action = New-ScheduledTaskAction -Execute $exe -Argument ("{0} {1}" -f $target.Id,$ticks)
     } else { $action = New-ScheduledTaskAction -Execute $exe }
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Seconds 25)
+    Write-ForegroundPhase 'register'
     $null = Register-ScheduledTask -TaskName $name -Principal $principal -Action $action -Settings $settings
     $registered = $true
     $requestedAt = Get-Date
+    Write-ForegroundPhase 'dispatch'
     Start-ScheduledTask -TaskName $name
     $file = Join-Path $dir 'sample'
+    Write-ForegroundPhase 'await-sample'
     $who.sampleWaitMs = Wait-WinHooForegroundSample $file $name $requestedAt
     $received = $true
+    Write-ForegroundPhase 'verify'
     $lines = [IO.File]::ReadAllLines($file)
     if ($request.mode -ceq 'focus') {
         if ($lines.Length -ne 4 -or $lines[3] -cnotin @('already-active','caption-click')) { throw 'No verified caption or foreground window for the requested process' }
@@ -44,8 +53,8 @@ try {
     if ($after.id -ne $before.id -or [int]$lines[0] -ne $before.id) { throw 'Console session changed during observation' }
     $who.request = $request.id; $who.session = [int]$lines[0]; $who.pid = [int]$lines[1]; $who.process = $lines[2]
     $who.consoleSession = $after; $who.console = $after.account
-    $who | ConvertTo-Json -Depth 3 -Compress
 } finally {
+    Write-ForegroundPhase 'cleanup'
     if ($registered) {
         try {
             if (!$received) { Stop-ScheduledTask -TaskName $name -ErrorAction Stop }
@@ -61,3 +70,4 @@ try {
         }
     }
 }
+$who | ConvertTo-Json -Depth 3 -Compress
