@@ -55,3 +55,16 @@ class ForegroundTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'no window was confirmed'):
                 desktop.foreground(None, self.state)
         probe.assert_called_once()
+
+    def test_timeout_identifies_the_last_phase_of_only_this_request(self):
+        other = uuid.uuid4().hex
+        stderr = (f'winhoo-foreground:{self.request.hex}:dispatch\n'
+                  f'winhoo-foreground:{self.request.hex}:await-sample\n'
+                  f'winhoo-foreground:{other}:cleanup\n').encode()
+        timeout = subprocess.TimeoutExpired('ssh', 85, output=b'{"pid":37}', stderr=stderr)
+        with patch.object(desktop.uuid, 'uuid4', return_value=self.request), \
+             patch.object(desktop, 'guest', side_effect=timeout) as probe:
+            with self.assertRaisesRegex(ValueError, '85 seconds.*await-sample.*no window was confirmed'):
+                desktop.foreground(None, self.state, 37, activate=True, timeout=85)
+        probe.assert_called_once()
+        self.assertEqual(probe.call_args.kwargs['timeout'], 85)

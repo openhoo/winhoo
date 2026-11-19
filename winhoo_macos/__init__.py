@@ -396,7 +396,9 @@ $who | ConvertTo-Json -Compress"""
 ATTEST_TRANSPORT = IDENTITY + '$who | ConvertTo-Json -Compress'
 
 
-def foreground(directory, state, expected_pid=None, *, activate=False, started_ticks=None):
+def foreground(directory, state, expected_pid=None, *, activate=False, started_ticks=None, timeout=90):
+    if type(timeout) is not int or not 1 <= timeout <= 300:
+        raise ValueError('Foreground timeout must be between 1 and 300 seconds')
     if activate and expected_pid is None:
         raise ValueError('Window activation requires the expected process ID')
     if expected_pid is not None and not 0 < expected_pid <= 0x7fffffff:
@@ -411,11 +413,20 @@ def foreground(directory, state, expected_pid=None, *, activate=False, started_t
         "$request = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + encoded + "')) | ConvertFrom-Json\n"
     ) + Path(__file__).with_name('foreground-sample.ps1').read_text(encoding='utf-8') + '\n' + Path(__file__).with_name('foreground.ps1').read_text(encoding='utf-8')
     try:
-        result = guest(directory, state, script, timeout=50, capture=True)
-    except subprocess.TimeoutExpired:
-        raise ValueError('Foreground observation timed out after 50 seconds; no window was confirmed') from None
+        result = guest(directory, state, script, timeout=timeout, capture=True)
+    except subprocess.TimeoutExpired as error:
+        partial = error.stderr or b''
+        if isinstance(partial, bytes):
+            partial = partial.decode('utf-8', errors='replace')
+        # Report only known phases from this request. A partial receipt, even
+        # during cleanup, cannot confirm success or authorize another click.
+        marker = 'winhoo-foreground:' + request['id'] + ':'
+        phases = [line[len(marker):] for line in partial.splitlines() if line.startswith(marker)
+                  and line[len(marker):] in ('console','compile','register','dispatch','await-sample','verify','cleanup')]
+        last = phases[-1] if phases else 'transport or guest startup'
+        raise ValueError(f'Foreground observation timed out after {timeout} seconds (last phase: {last}); no window was confirmed') from None
     if result.returncode:
-        lines = [line.strip() for line in result.stderr.splitlines() if line.strip() and not line.startswith(('#< CLIXML', '<Objs '))]
+        lines = [line.strip() for line in result.stderr.splitlines() if line.strip() and not line.startswith(('#< CLIXML', '<Objs ', 'winhoo-foreground:'))]
         raise ValueError('Could not observe the foreground: ' + next(iter(lines), 'no diagnostic')[:300])
     info = json.loads(result.stdout)
     if (info.get('owner') != state['uuid'] or info.get('request') != request['id']
@@ -668,6 +679,8 @@ def arguments(parser):
         if op == 'status':
             p.add_argument('--locks-only', action='store_true',
                            help='Read host controller locks without contacting QEMU or Windows')
+        if op in ('foreground', 'focus-window'):
+            p.add_argument('--timeout', type=int, default=90, help='Total timeout including cold task startup and cleanup (1–300 seconds)')
         if op == 'foreground':
             p.add_argument('--expect-pid', type=int, help='Fail if the foreground window belongs to a different Windows process')
         if op == 'focus-window':
@@ -755,9 +768,9 @@ def dispatch(a):
         if op == 'inspect':
             return inspect_guest(d,s,a.timeout,a.require_loopback)
         if op == 'foreground':
-            return foreground(d,s,a.expect_pid)
+            return foreground(d,s,a.expect_pid,timeout=a.timeout)
         if op == 'focus-window':
-            return foreground(d,s,a.pid,activate=True,started_ticks=a.started_ticks)
+            return foreground(d,s,a.pid,activate=True,started_ticks=a.started_ticks,timeout=a.timeout)
         if op == 'exec':
             return guest(d,s,sys.stdin.read() if a.stdin else a.file.read_text(),timeout=a.timeout,capture=False).returncode
         if op == 'archive':

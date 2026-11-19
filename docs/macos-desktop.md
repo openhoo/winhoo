@@ -224,6 +224,13 @@ return as soon as its receipt arrives. `sampleWaitMs` reports that wait. After
 reports the scheduler state and result if available. A task that has already
 exited without a receipt fails earlier. Activation is never replayed.
 
+The host allows 90 seconds for the entire operation, including SSH startup,
+registration and removal of the temporary task. Set `--timeout SECONDS` on
+either foreground command to change that deadline (1–300 seconds). A host
+timeout reports the last phase observed for this request. Keep a caller's
+outer deadline longer than WinHoo's; an expired request does not prove that
+the window received focus.
+
 To give a test application the keyboard **before** starting a long test,
 identify the actual window-owning process in the guest and run:
 
