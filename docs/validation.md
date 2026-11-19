@@ -186,3 +186,17 @@ sleep at 14:04:10 UTC and wake at 14:10:11 UTC. These matched
 with its guest operation held throughout the observation. This check read
 host state; it did not start another guest command. The 84 controller tests
 passed on macOS, including independent handling of missing events.
+
+### November 19: Detached matrix submission and recovering a guest result
+
+On macOS, a disposable fixture was submitted to the actual user launchd
+domain. It received the intended source commit, desktop and evidence path;
+a second submission under a different directory was refused before dispatch.
+This host test did not boot Windows. All 88 controller tests passed on the Mac.
+
+On a real earlier NVDA run for which the original host process had exited,
+the status reader found 28 logged passes and the incomplete German desktop
+actions-08 block. The recovered guest result matched the attempt, owner and
+input bundle and contained exit code 1. The host receipt still said
+`starting`. The command reported `guest-reported-failure` and did not turn
+the partial evidence into a passing matrix.

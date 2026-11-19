@@ -40,6 +40,19 @@ class DesktopTests(unittest.TestCase):
         self.owner = str(uuid.uuid4())
         self.state = {'uuid': self.owner, 'account': 'TestUser'}
 
+    def test_guest_exec_timeout_names_the_file_and_preserves_uncertain_outcome(self):
+        script = self.root/'discover-browser.ps1'
+        script.write_text('Write-Output test')
+        args = winhoo.parser().parse_args(['desktop','exec',str(self.root),'--file',str(script),'--timeout','100'])
+        with patch.object(desktop,'read_state',return_value=self.state), \
+             patch.object(desktop,'current',return_value='running'), \
+             patch.object(desktop,'owned_receipt',return_value=True), \
+             patch.object(desktop,'guest',side_effect=subprocess.TimeoutExpired('ssh encoded-wrapper',100)) as guest:
+            with self.assertRaisesRegex(ValueError,r'discover-browser\.ps1.*100s; no guest exit code') as error:
+                desktop.dispatch(args)
+        guest.assert_called_once()
+        self.assertNotIn('encoded-wrapper',str(error.exception))
+
     def test_identity_matches_relocated_controller_and_rejects_guest_script_drift(self):
         fixture = self.root / 'original'
         moved = self.root / 'relocated'
