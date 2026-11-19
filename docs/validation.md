@@ -164,3 +164,14 @@ returned success; QMP reported `guest=true, reason=guest-shutdown` after 8.9
 seconds. At the next boot Windows recorded the shutdown request (1074), event
 log stop (6006), and kernel shutdown (13), with no new 41 or 6008. The updated
 `desktop down` also completed on this guest with `method=windows-shutdown`.
+
+### November 19: Foreground samples on a cold Windows 11 ARM64 desktop
+
+The previous controller stopped waiting after 12 seconds. In a controlled
+Windows test the original delayed receipt arrived at 15.373 seconds. The
+installed controller accepted that one receipt. In a separate test with real
+Chrome, Windows confirmed the caption activation after 1.711 seconds; a
+passive observation returned the same foreground PID after 8.509 seconds.
+These timings cover the wait after dispatch, not the full command or a
+screen reader test. Windows Task Scheduler history was disabled on this guest,
+so the earlier timeout cannot be attributed to a specific scheduler event.

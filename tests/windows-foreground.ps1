@@ -2,13 +2,41 @@
 # can have no input desktop; only the retained local VM qualifies that path.
 $ErrorActionPreference = 'Stop'
 $src = Join-Path $PSScriptRoot '..\winhoo_macos'
-foreach ($f in 'console-state.ps1','foreground.ps1') {
+foreach ($f in 'console-state.ps1','foreground-sample.ps1','foreground.ps1') {
     $errors = $null
     $null = [Management.Automation.Language.Parser]::ParseFile((Join-Path $src $f), [ref]$null, [ref]$errors)
     if ($errors) { throw ($errors -join [Environment]::NewLine) }
 }
 $dir = (New-Item -Path (Join-Path $env:TEMP ([guid]::NewGuid().ToString('N'))) -ItemType Directory).FullName
 try {
+    . (Join-Path $src 'foreground-sample.ps1')
+    # A cold console can deliver a sample after the previous 12-second
+    # deadline. Wait for that original receipt without invoking another helper.
+    $delayed = Join-Path $dir 'delayed-sample'
+    $job = Start-Job -ArgumentList $delayed -ScriptBlock {
+        param($file)
+        Start-Sleep -Seconds 14
+        [IO.File]::WriteAllText($file, 'ready')
+    }
+    try {
+        $waitMs = Wait-WinHooForegroundSample $delayed 'WinHoo-NoRegisteredTestTask' (Get-Date)
+        if ($waitMs -lt 12000 -or [IO.File]::ReadAllText($delayed) -cne 'ready') {
+            throw 'The late foreground sample was not observed'
+        }
+    } finally {
+        Remove-Job -Job $job -Force
+    }
+    # A terminal result for this request must not become a generic timeout.
+    & {
+        function Get-ScheduledTask { param($TaskName, $ErrorAction) [pscustomobject]@{State='Ready'} }
+        function Get-ScheduledTaskInfo { param($TaskName, $ErrorAction) [pscustomobject]@{LastRunTime=(Get-Date);LastTaskResult=5} }
+        try {
+            $null = Wait-WinHooForegroundSample (Join-Path $dir 'absent') 'WinHoo-Test' (Get-Date)
+            throw 'Missing foreground sample was accepted'
+        } catch {
+            if ($_.Exception.Message -notmatch 'exited without a sample .*last result=5') { throw }
+        }
+    }
     $exe = Join-Path $dir 'foreground.exe'
     Add-Type -OutputAssembly $exe -OutputType WindowsApplication -TypeDefinition ([IO.File]::ReadAllText((Join-Path $src 'foreground.cs')))
     $bytes = [IO.File]::ReadAllBytes($exe)
