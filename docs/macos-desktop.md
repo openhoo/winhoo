@@ -297,8 +297,9 @@ alone establishes neither observation.
 
 ### Keeping a local NVDA matrix running after closing a terminal
 
-From a WinHoo source checkout, submit the HooSaidThat matrix to the logged-in
-Mac user's launchd. Select a clean HooSaidThat checkout, a provisioned desktop
+Install the WinHoo wheel and submit the HooSaidThat matrix to the logged-in
+Mac user's launchd. The source checkout also supports the original
+`python3 examples/local_nvda_job.py` entry point. Select a clean HooSaidThat checkout, a provisioned desktop
 that is off, and a new private job directory. Connect the Mac to mains power:
 the matrix checks the active power source before reserving the desktop.
 An idle-sleep assertion cannot prevent macOS from hibernating on low battery.
@@ -307,9 +308,9 @@ until the job finishes. Use the installed controller that provisioned the VM.
 
 ```sh
 candidate=$(git -C "$hst" rev-parse HEAD)
-python3 examples/local_nvda_job.py start "$job" --source "$hst" \
+winhoo-nvda-job start "$job" --source "$hst" \
   --desktop "$vm" --candidate "$candidate" --winhoo "$winhoo_bin"
-python3 examples/local_nvda_job.py status "$job"
+winhoo-nvda-job status "$job"
 ```
 
 The host runs the matrix once and keeps its logs in the job directory. Closing
@@ -344,3 +345,46 @@ connecting to Windows.
 
 If `desktop exec` times out, it names the script and deadline. The guest's
 exit code is unknown. Inspect its existing results before submitting it again.
+
+### Verifying a completed matrix without Windows
+
+Install the controller and run the following on the saved evidence directory.
+It reads the host receipt, the original guest input and the guest's
+`reports.zip` in place. It does not contact a VM or use possibly stale
+extracted reports. Supply the candidate commit, its Git tree and the pinned
+HooVDA commit from the candidate you intend to qualify.
+
+```sh
+winhoo desktop verify-nvda-matrix "$job/evidence" \
+  --inventory "$hst/oracle/windows-nvda/matrix-inventory.json" \
+  --candidate "$candidate" --tree "$tree" --engine "$engine" --owner "$owner"
+```
+
+The test owner maintains the inventory alongside the tests, independently of
+the captured output. It is a JSON object with `schemaVersion: 1`,
+`requireReportBinding: true` and a `blocks` object. Each entry (`core`,
+`actions-01` through `actions-08`, `settings`) lists the exact titles
+expected to pass for both locales and keyboard layouts. Titles must be unique
+within each report. Update the inventory in review when the selection changes.
+
+WinHoo matches the active, unlocked console and the guest's original attempt
+and input bundle, requires all 40 block transitions in order, and checks every
+individual test result, including skips. A replay, a substituted or missing
+case, retries, runner errors or incomplete shutdown fail verification. A
+binding in Playwright's `config.metadata.hstMatrix` identifies the adapter,
+locale, layout, block and attempt. An inventory for an older candidate can
+omit `requireReportBinding` if its reports predate that field: in that case
+only the archive filename and block log establish where each report belongs.
+Current runs must also include the saved output of the guest shutdown in
+`shutdown.json`, bound to the desktop and attempt and timestamped at or after
+the shutdown request. Historical runs without this file are checked against
+the host receipt's shutdown result only. An explicitly inconsistent binding
+or shutdown receipt always fails.
+
+On success the JSON includes the selected case count, source identities and
+SHA-256 of the inventory and each original report. Keep this summary with the
+original attempt. Supply a trusted inventory from the intended revision; the
+command checks consistency, not the authenticity of a hand-edited archive.
+A later passing replay is a separate result and cannot stand in for a
+complete run. Do not release raw guest archives; they can contain machine
+identifiers, traces or application data.

@@ -228,3 +228,14 @@ The same local matrix had reported 15 completed blocks while its host receipt
 still said `starting`. Reading its existing evidence with the updated status
 command returned `matrix-started`, the current block and the original receipt
 state without contacting Windows. All 91 controller tests passed on macOS.
+
+### Offline NVDA matrix verification
+
+The installed verifier read an existing Windows 11 ARM64 NVDA run from its
+original guest ZIP and host receipts. The four locale/layout combinations
+contained 40 complete blocks, 92 selected passing tests and zero retries;
+shutdown was guest-confirmed. This historical run predates embedded per-report
+block metadata. It exercises the offline verification path, not a fresh guest
+boot. Host fixtures additionally cover a wrong selected case with unchanged
+statistics, a hidden retry, a substituted block or attempt, missing original
+reports, an incorrect source identity and incomplete shutdown.
