@@ -358,6 +358,34 @@ class DesktopTests(unittest.TestCase):
         self.assertEqual(result['archive'],identity)
         self.assertEqual(target.read_bytes(),original.read_bytes())
 
+    def test_collect_from_interrupted_running_owner_skips_boot_and_requires_verified_download(self):
+        target = self.root/'recovered.zip'
+        source = r'C:\ProgramData\MyRunner\completed-results'
+        desktop.save(self.root/'installed.json', {'owner': self.owner})
+        archive = {'owner': self.owner, 'name': 'original.zip', 'bytes': 5, 'sha256': '0'*64}
+        stop = {'uuid': self.owner, 'state': 'off', 'shutdown': 'guest-confirmed'}
+        def transfer(d, state, name, path, timeout, *, archive):
+            path.write_bytes(b'trace')
+        with patch.object(desktop, 'current', return_value='running'), patch.object(desktop, 'up') as boot, \
+             patch.object(desktop, 'wait') as attest, patch.object(desktop, 'archive_results', return_value=archive), \
+             patch.object(desktop, 'get_file', side_effect=ValueError('digest mismatch')) as get, \
+             patch.object(desktop, 'down', return_value=stop) as down:
+            with self.assertRaisesRegex(ValueError, 'owner'):
+                desktop.collect(self.root, self.state, 'original.zip', target, 30, source=source,
+                                running_owner='00000000-0000-0000-0000-000000000001')
+            attest.assert_not_called()
+            with self.assertRaisesRegex(ValueError, 'digest mismatch'):
+                desktop.collect(self.root, self.state, 'original.zip', target, 30, source=source, running_owner=self.owner)
+            down.assert_not_called()
+            self.assertFalse(target.exists())
+            get.side_effect = transfer
+            receipt = desktop.collect(self.root, self.state, 'original.zip', target, 30, source=source, running_owner=self.owner)
+            self.assertEqual(get.call_args.kwargs['archive'], archive)
+            attest.assert_called_with(self.root, self.state, 30, interactive=False)
+            boot.assert_not_called()
+            down.assert_called_once()
+            self.assertEqual((target.read_bytes(), receipt['shutdown']), (b'trace', 'guest-confirmed'))
+
     def test_bad_download_never_publishes_an_archive(self):
         target=self.root/'downloaded.zip'
         for size in (4, 17):

@@ -137,3 +137,11 @@ The source checkout and a freshly installed wheel returned the same
 only the installed foreground PowerShell script in a disposable copy made
 `--expect-sha256` exit 1. The file list identified that one difference.
 No VM was started for the package comparison; 75 macOS host tests passed.
+
+On November 19, 2026, `collect --finish-running-owner` recovered a completed
+Playwright result directory from a running, dedicated Windows 11 ARM64 desktop
+on Apple Silicon. The archive contained 14 files (815,412 bytes); its downloaded
+SHA-256 matched the guest receipt. Offline inspection found the original reader
+flow, and WinHoo confirmed guest shutdown. The underlying test had failed.
+The macOS host suite (79 tests) also checked refusal of other owners and that
+a failed download leaves an adopted desktop running.

@@ -178,6 +178,21 @@ winhoo desktop collect "$root/test" recovery-example.zip ./recovered-example.zip
 This holds the lifecycle lock from boot through shutdown, waits for the guest
 transport rather than the GUI, creates a new archive, verifies the downloaded
 bytes and publishes the local file only after the same guest has shut down.
+
+If the test ended but an interrupted controller left its dedicated VM running,
+use the UUID from the **original attempt** and its completed result directory:
+
+```sh
+winhoo desktop collect "$root/test" recovery-example.zip ./recovered-example.zip \
+  --from-directory 'C:\ProgramData\MyRunner\attempts\example\results' \
+  --finish-running-owner "$original_desktop_uuid" > ./recovered-example.json
+```
+
+This skips boot, attests the running guest, verifies the archive and asks
+Windows to shut down. A busy controller, a different owner, or an already
+stopped VM prevents the operation. Failed attestation or transfer leaves the
+running desktop available for recovery. Use a new archive name for each
+attempt. Keep the JSON receipt next to the ZIP for offline inspection.
 A running QEMU process is not evidence that Windows SSH is ready.
 
 ### Checking which application has the keyboard
