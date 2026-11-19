@@ -145,3 +145,12 @@ SHA-256 matched the guest receipt. Offline inspection found the original reader
 flow, and WinHoo confirmed guest shutdown. The underlying test had failed.
 The macOS host suite (79 tests) also checked refusal of other owners and that
 a failed download leaves an adopted desktop running.
+
+## Local Windows 11 ARM64: acquiring the test window (November 19, 2026)
+
+On build 26100, the dedicated user's taskbar was activated to put Explorer
+in front of a running Chrome for Testing window. `desktop foreground` identified
+Explorer. `focus-window` given the live browser PID and start time returned
+`caption-click`. An independent foreground probe then identified the same Chrome
+PID. A second activation returned `already-active`. A start time off by one
+tick and a process in the service session were both refused before activation.

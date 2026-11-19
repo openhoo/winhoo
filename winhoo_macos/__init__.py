@@ -392,11 +392,16 @@ $who | ConvertTo-Json -Compress"""
 ATTEST_TRANSPORT = IDENTITY + '$who | ConvertTo-Json -Compress'
 
 
-def foreground(directory, state, expected_pid=None):
+def foreground(directory, state, expected_pid=None, *, activate=False, started_ticks=None):
+    if activate and expected_pid is None:
+        raise ValueError('Window activation requires the expected process ID')
     if expected_pid is not None and not 0 < expected_pid <= 0x7fffffff:
         raise ValueError('Expected a positive Windows process ID')
+    if started_ticks is not None and (not activate or not 0 < started_ticks <= 3155378975999999999):
+        raise ValueError('Expected Windows process start time in UTC DateTime ticks')
     request = {'owner': state['uuid'], 'account': state['account'], 'id': uuid.uuid4().hex,
-               'probeSource': Path(__file__).with_name('foreground.cs').read_text(encoding='utf-8')}
+               'mode': 'focus' if activate else 'observe', 'pid': expected_pid, 'startedTicks': started_ticks,
+               'probeSource': Path(__file__).with_name('focus-caption.cs' if activate else 'foreground.cs').read_text(encoding='utf-8')}
     encoded = base64.b64encode(json.dumps(request).encode()).decode('ascii')
     script = CONSOLE + IDENTITY + (
         "$request = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + encoded + "')) | ConvertFrom-Json\n"
@@ -418,6 +423,8 @@ def foreground(directory, state, expected_pid=None):
         raise ValueError('Foreground sample does not belong to this request and its unlocked console')
     if expected_pid is not None and info['pid'] != expected_pid:
         raise ValueError(f"Foreground is {info['process']} (PID {info['pid']}); expected PID {expected_pid}")
+    if activate and info.get('method') not in ('already-active', 'caption-click'):
+        raise ValueError('Windows did not confirm activation of the selected process')
     return info
 
 
@@ -598,7 +605,7 @@ def arguments(parser):
     p.add_argument('--esd', type=Path, required=True)
     p.add_argument('--sha256', required=True)
     p.add_argument('--output', type=Path, required=True)
-    for op in ('create','forwards','up','wait','status','inspect','foreground','screenshot','exec','put','archive','get','collect','down'):
+    for op in ('create','forwards','up','wait','status','inspect','foreground','focus-window','screenshot','exec','put','archive','get','collect','down'):
         p = commands.add_parser(op)
         p.add_argument('directory', type=Path, help='Private retained VM directory')
         if op == 'create':
@@ -626,6 +633,9 @@ def arguments(parser):
                            help='Read host controller locks without contacting QEMU or Windows')
         if op == 'foreground':
             p.add_argument('--expect-pid', type=int, help='Fail if the foreground window belongs to a different Windows process')
+        if op == 'focus-window':
+            p.add_argument('--pid', required=True, type=int, help='Windows process to activate on the dedicated test console')
+            p.add_argument('--started-ticks', type=int, help='Also require the previously observed UTC process start time in .NET ticks')
         if op == 'exec':
             src = p.add_mutually_exclusive_group(required=True)
             src.add_argument('--file', type=Path)
@@ -709,6 +719,8 @@ def dispatch(a):
             return inspect_guest(d,s,a.timeout,a.require_loopback)
         if op == 'foreground':
             return foreground(d,s,a.expect_pid)
+        if op == 'focus-window':
+            return foreground(d,s,a.pid,activate=True,started_ticks=a.started_ticks)
         if op == 'exec':
             return guest(d,s,sys.stdin.read() if a.stdin else a.file.read_text(),timeout=a.timeout,capture=False).returncode
         if op == 'archive':

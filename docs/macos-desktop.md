@@ -217,6 +217,23 @@ titles. It can run while a test owns the guest. A different PID, a locked
 desktop, a session switch or a missing foreground window fails the check.
 This describes the instant sampled; another application can take focus later.
 
+To give a test application the keyboard **before** starting a long test,
+identify the actual window-owning process in the guest and run:
+
+```sh
+winhoo desktop focus-window "$root/test" --pid "$browser_pid" --started-ticks "$started_ticks"
+```
+
+`--started-ticks` is optional. Pass the UTC `.StartTime.ToUniversalTime().Ticks`
+from the same Windows process observation to reject a reused PID. The result
+reports `already-active` if that process already owns the foreground. Otherwise
+WinHoo looks for a visible, unobstructed title-bar point which Windows identifies
+as a draggable caption, clicks once, and checks the foreground PID again. A
+successful change reports `caption-click`. Minimized or covered windows without
+a verified caption cannot be activated this way. A locked console, a different
+session or a busy test also prevents activation. The command does not click
+page content or use a stored screen coordinate.
+
 ### Replacing content inside a foreground application
 
 Windows can keep the same foreground process while the application's native

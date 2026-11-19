@@ -286,7 +286,7 @@ class DesktopTests(unittest.TestCase):
         with desktop.operation_lock(self.root,'exec'):
             for op in ('inspect','get','foreground'):
                 with self.subTest(op=op),desktop.operation_lock(self.root,op): pass
-            for op in ('exec','put','archive','up','down','wait'):
+            for op in ('exec','put','archive','focus-window','up','down','wait'):
                 with self.subTest(op=op),self.assertRaisesRegex(ValueError,'lifecycle'):
                     with desktop.operation_lock(self.root,op): pass
         with desktop.operation_lock(self.root,'down'),self.assertRaisesRegex(ValueError,'lifecycle'):
