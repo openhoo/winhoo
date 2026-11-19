@@ -294,3 +294,34 @@ from the same start produced only “Omega last”. In both cases the editable
 caret was at offset zero in the target block. Capture the fresh display
 response and the resulting selection separately. A focused browser process
 alone establishes neither observation.
+
+### Keeping a local NVDA matrix running after closing a terminal
+
+From a WinHoo source checkout, submit the HooSaidThat matrix to the logged-in
+Mac user's launchd. Select a clean HooSaidThat checkout, a provisioned desktop
+that is off, and a new private job directory. Keep the checkout at that commit
+until the job finishes. Use the installed controller that provisioned the VM.
+
+```sh
+candidate=$(git -C "$hst" rev-parse HEAD)
+python3 examples/local_nvda_job.py start "$job" --source "$hst" \
+  --desktop "$vm" --candidate "$candidate" --winhoo "$winhoo_bin"
+python3 examples/local_nvda_job.py status "$job"
+```
+
+The host runs the matrix once and keeps its logs in the job directory. Closing
+the terminal does not end it. A second submission for the same desktop is
+refused while the first awaits a final host receipt. This does not survive a
+Mac logout, and closing the lid can suspend the guest. If submission is
+interrupted, inspect the original job and its launchd label in `job.json`.
+Keep its directory until the next job has started.
+
+`reportedBlocks` counts complete log lines. A recovered guest failure is
+reported as `guest-reported-failure`; a zero guest exit code with no final host
+receipt is `awaiting-host-verification`. The host's final receipt, per-block
+test reports, and guest shutdown are needed to qualify a release. The same
+status command can read an existing matrix evidence directory without
+connecting to Windows.
+
+If `desktop exec` times out, it names the script and deadline. The guest's
+exit code is unknown. Inspect its existing results before submitting it again.

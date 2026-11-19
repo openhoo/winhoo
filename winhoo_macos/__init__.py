@@ -795,7 +795,12 @@ def dispatch(a):
         if op == 'focus-window':
             return foreground(d,s,a.pid,activate=True,started_ticks=a.started_ticks,timeout=a.timeout)
         if op == 'exec':
-            return guest(d,s,sys.stdin.read() if a.stdin else a.file.read_text(),timeout=a.timeout,capture=False).returncode
+            description = 'PowerShell from stdin' if a.stdin else a.file.name
+            try:
+                return guest(d,s,sys.stdin.read() if a.stdin else a.file.read_text(),timeout=a.timeout,capture=False).returncode
+            except subprocess.TimeoutExpired:
+                raise ValueError(f'Windows command ({description}) timed out after {a.timeout}s; no guest exit code was received. '
+                                 'Inspect the original operation before running it again.') from None
         if op == 'archive':
             if a.output is not None:
                 check_destination(a.output)
