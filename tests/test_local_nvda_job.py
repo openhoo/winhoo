@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch
 import uuid
 
-from examples import local_nvda_job as jobs
+from winhoo_macos import nvda_job as jobs
 
 
 class NativeJobTests(unittest.TestCase):

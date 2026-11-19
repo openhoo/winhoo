@@ -174,7 +174,7 @@ Use the installer helper in a derived image's `RUN` instruction to bake a verifi
 
 The checkout's ignored `.local/` directory contains per-instance client keys, pinned host identities, and resource metadata. Change its location with `--state-dir`. Resources are matched by immutable container ID plus ownership labels and an instance UUID. A reused container name, changed endpoint, or changed SSH key is rejected.
 
-The repository command is `python3 winhoo.py`. An editable install (`python3 -m pip install -e .`) also provides `winhoo`. A standalone wheel does not include the container build context; use `build --source-dir /path/to/winhoo` with a checkout.
+The repository command is `python3 winhoo.py`. Install the wheel from [GitHub Releases](https://github.com/openhoo/winhoo/releases), or use an editable install (`python3 -m pip install -e .`) for the `winhoo` command. A standalone wheel does not include the container build context; use `build --source-dir /path/to/winhoo` with a checkout.
 
 ## Verification
 

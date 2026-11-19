@@ -4,13 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "winhoo"
-version = "0.1.0"
+version = "0.2.0"
 description = "Repeatable native Windows container installation and SSH automation"
 requires-python = ">=3.10"
 dependencies = []
 
 [project.scripts]
 winhoo = "winhoo:main"
+winhoo-nvda-job = "winhoo_macos.nvda_job:main"
 
 [tool.setuptools]
 py-modules = ["winhoo"]

@@ -671,6 +671,12 @@ def arguments(parser):
     archive.add_argument('--receipt', type=Path, required=True, help='Saved desktop archive or collect JSON receipt')
     archive.add_argument('--expect-owner', metavar='UUID', help='Require this desktop UUID')
     archive.add_argument('--find', metavar='FILENAME', help='List entries with this exact filename')
+    matrix = commands.add_parser('verify-nvda-matrix', help='Verify original Windows reports against an independent test inventory offline')
+    matrix.add_argument('evidence', type=Path)
+    matrix.add_argument('--inventory', type=Path, required=True)
+    for flag in ('candidate', 'tree', 'engine'):
+        matrix.add_argument('--'+flag, required=True, metavar='SHA')
+    matrix.add_argument('--owner', metavar='UUID', help='Require this desktop owner')
     commands.add_parser('sources', help='Fetch or verify the pinned Windows media, OpenSSH and network driver').add_argument('cache',type=Path)
     p = commands.add_parser('media')
     p.add_argument('--esd', type=Path, required=True)
@@ -737,6 +743,9 @@ def dispatch(a):
     if op == 'inspect-archive':
         from .archive_info import inspect
         return inspect(a.file, a.receipt, owner=a.expect_owner, find=a.find)
+    if op == 'verify-nvda-matrix':
+        from .nvda_matrix import verify
+        return verify(a.evidence, a.inventory, candidate=a.candidate, tree=a.tree, engine=a.engine, owner=a.owner)
     if op == 'doctor':
         return doctor()
     if op == 'sources':
