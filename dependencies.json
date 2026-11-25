@@ -21,5 +21,36 @@
     "url": "https://desktop.docker.com/win/main/amd64/245422/Docker%20Desktop%20Installer.exe",
     "sha256": "cd6273d9eaa4f07fa7593fc6813d37e1004381cebc3f26047a2554fa5db24388",
     "checksumSource": "https://desktop.docker.com/win/main/amd64/245422/checksums.txt"
+  },
+  "desktopRuntime": {
+    "version": "0.4.0",
+    "imageIndex": "docker.io/dockurr/windows@sha256:0cff9eb0e7aee9953e55bc682852ca4fdca233145a58ae1ec94f0b0c01a2ed30",
+    "arm64Base": "docker.io/dockurr/windows@sha256:25f95472f8370d8e48cc7f86d7dbf222114cf84b671f054ea74b80a5350b44ef",
+    "x64RuntimeSource": "docker.io/dockurr/windows@sha256:32cc92715a6c5dc1f63142d3be11059279d64d0faa7519618a07290b3076f9f2",
+    "qemuDebianVersion": "1:10.0.13+ds-0+deb13u1",
+    "hiddenLauncherCompiler": {
+      "package": "mono-mcs",
+      "version": "6.12.0.199+dfsg-6",
+      "buildOnly": true
+    },
+    "windowsDriverSource": "/var/drivers.txz from x64RuntimeSource; guest tooling uses vioserial/w11/amd64",
+    "controllerBundle": "/usr/share/winhoo/controller",
+    "applications": [],
+    "guestAgent": {
+      "package": "qemu-ga-win-110.2.3-2.el10",
+      "url": "https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-qemu-ga/qemu-ga-win-110.2.3-2.el10/qemu-ga-x86_64.msi",
+      "bytes": 11909632,
+      "sha256": "19dcf8abc30f70c2eb6e87282601fd0476e4e0b19936f63d9c80be30db0796ed"
+    },
+    "offlineTools": {
+      "python3-guestfs": "1:1.54.1-2+deb13u1",
+      "supermin": "5.2.2-6+b3",
+      "linux-image": "6.12.118-1",
+      "ntfs-3g": "1:2022.10.3-5+deb13u3",
+      "libfuse3-4": "3.17.2-3",
+      "libkmod2": "34.2-2",
+      "libsystemd-shared": "257.13-1~deb13u1",
+      "libudev1": "257.13-1~deb13u1"
+    }
   }
 }

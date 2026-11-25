@@ -1,0 +1,19 @@
+FROM --platform=linux/amd64 docker.io/dockurr/windows@sha256:32cc92715a6c5dc1f63142d3be11059279d64d0faa7519618a07290b3076f9f2 AS launcher
+ARG MONO_MCS_VERSION=6.12.0.199+dfsg-6
+RUN apt-get update && apt-get install -y --no-install-recommends mono-mcs=${MONO_MCS_VERSION}
+COPY desktop/RunHidden.cs /src/RunHidden.cs
+RUN mcs -nologo -target:winexe -optimize+ -out:/WinHoo.RunHidden.exe /src/RunHidden.cs
+FROM --platform=linux/amd64 docker.io/dockurr/windows@sha256:32cc92715a6c5dc1f63142d3be11059279d64d0faa7519618a07290b3076f9f2
+COPY desktop/install-host-tools.sh /tmp/winhoo-install-host-tools.sh
+RUN bash /tmp/winhoo-install-host-tools.sh && rm /tmp/winhoo-install-host-tools.sh
+COPY desktop/Install-GuestTools.ps1 desktop/WinHoo-GuestTools.cmd desktop/oem-install.bat /usr/share/winhoo/guest-tools/
+COPY --from=launcher /WinHoo.RunHidden.exe /usr/share/winhoo/guest-tools/
+COPY desktop/RunHidden.cs /usr/share/winhoo/guest-tools/
+COPY desktop/entry.sh desktop/guest-tools.py /usr/share/winhoo/
+COPY winhoo_desktop.py /usr/share/winhoo/controller/winhoo_desktop.py
+COPY desktop/runtime.json desktop/owner-watchdog.sh /usr/share/winhoo/controller/desktop/
+COPY LICENSE THIRD_PARTY_NOTICES.md /usr/share/winhoo/
+LABEL io.openhoo.winhoo.desktop.runtime="winhoo.desktop-runtime/1" \
+      io.openhoo.winhoo.desktop.version="0.4.0" \
+      io.openhoo.winhoo.desktop.applications="none"
+ENTRYPOINT ["/usr/bin/tini", "-s", "bash", "/usr/share/winhoo/entry.sh"]

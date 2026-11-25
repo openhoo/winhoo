@@ -1,6 +1,6 @@
 # Working on winhoo
 
-The container commands target native Windows containers, silent installers, CLI applications and services. A Windows Server host VM can supply a container engine. The independent `desktop` command operates a Windows 11 desktop directly on Apple Silicon for interactive applications. Keep its lifecycle in WinHoo and application provisioning and assertions in the consumer. See docs/macos-desktop.md.
+The container commands target native Windows containers, silent installers, CLI applications and services. A Windows Server host VM can supply a container engine. The independent `desktop` command operates a Windows 11 desktop directly on Apple Silicon for interactive applications. Keep its lifecycle in WinHoo and application provisioning and assertions in the consumer. See docs/macos-desktop.md. For a Windows desktop on Linux Docker or WSL2, use the separate image and controller in desktop/README.md. Validate actual reader output in the consuming application.
 
 - Read README.md for the supported host and controller transports.
 - A native Windows engine is necessary for build and runtime verification. A Linux Docker engine on macOS cannot supply that evidence.

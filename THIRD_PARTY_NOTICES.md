@@ -2,7 +2,7 @@
 
 ## Local ARM64 Windows host image recipe
 
-`host/local-vm/Dockerfile.arm64` is derived from
+`host/local-vm/Dockerfile.arm64` and `desktop/Dockerfile.arm64` are derived from
 `openhoo/hoosaidthat/oracle/windows-nvda/Dockerfile.arm64`.
 The original recipe is distributed under the following MIT license:
 

@@ -1,0 +1,38 @@
+# Native ARM host tools run the unchanged x64 Windows/QEMU configuration.
+# Guest scripts, firmware and Windows drivers come from the pinned x64 image;
+# the x64-system emulator itself is a native ARM executable.
+FROM --platform=linux/arm64 docker.io/dockurr/windows@sha256:25f95472f8370d8e48cc7f86d7dbf222114cf84b671f054ea74b80a5350b44ef AS launcher
+ARG MONO_MCS_VERSION=6.12.0.199+dfsg-6
+RUN apt-get update && apt-get install -y --no-install-recommends mono-mcs=${MONO_MCS_VERSION}
+COPY desktop/RunHidden.cs /src/RunHidden.cs
+RUN mcs -nologo -target:winexe -optimize+ -out:/WinHoo.RunHidden.exe /src/RunHidden.cs
+FROM --platform=linux/amd64 docker.io/dockurr/windows@sha256:32cc92715a6c5dc1f63142d3be11059279d64d0faa7519618a07290b3076f9f2 AS x64
+FROM --platform=linux/arm64 docker.io/dockurr/windows@sha256:25f95472f8370d8e48cc7f86d7dbf222114cf84b671f054ea74b80a5350b44ef
+ARG QEMU_VERSION=1:10.0.13+ds-0+deb13u1
+RUN apt-get update \
+    && apt-get install -y --allow-downgrades --no-install-recommends \
+        qemu-system-x86=${QEMU_VERSION} qemu-system-common=${QEMU_VERSION} \
+        qemu-system-data=${QEMU_VERSION} qemu-utils=${QEMU_VERSION} \
+        qemu-system-arm- qemu-block-extra- \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=x64 /run/ /run/
+COPY --from=x64 /usr/share/OVMF/ /usr/share/OVMF/
+COPY --from=x64 /var/drivers.txz /var/drivers.txz
+RUN bsdtar -tf /var/drivers.txz > /tmp/windows-driver-list \
+    && grep -q 'NetKVM/w11/amd64/netkvm.inf' /tmp/windows-driver-list \
+    && grep -q 'vioscsi/w11/amd64/vioscsi.inf' /tmp/windows-driver-list \
+    && rm /tmp/windows-driver-list
+ENV PLATFORM=x64 MACHINE=q35 KVM=N NETWORK=slirp
+COPY desktop/install-host-tools.sh /tmp/winhoo-install-host-tools.sh
+RUN bash /tmp/winhoo-install-host-tools.sh && rm /tmp/winhoo-install-host-tools.sh
+COPY desktop/Install-GuestTools.ps1 desktop/WinHoo-GuestTools.cmd desktop/oem-install.bat /usr/share/winhoo/guest-tools/
+COPY --from=launcher /WinHoo.RunHidden.exe /usr/share/winhoo/guest-tools/
+COPY desktop/RunHidden.cs /usr/share/winhoo/guest-tools/
+COPY desktop/entry.sh desktop/guest-tools.py /usr/share/winhoo/
+COPY winhoo_desktop.py /usr/share/winhoo/controller/winhoo_desktop.py
+COPY desktop/runtime.json desktop/owner-watchdog.sh /usr/share/winhoo/controller/desktop/
+COPY LICENSE THIRD_PARTY_NOTICES.md /usr/share/winhoo/
+LABEL io.openhoo.winhoo.desktop.runtime="winhoo.desktop-runtime/1" \
+      io.openhoo.winhoo.desktop.version="0.4.0" \
+      io.openhoo.winhoo.desktop.applications="none"
+ENTRYPOINT ["/usr/bin/tini", "-s", "bash", "/usr/share/winhoo/entry.sh"]

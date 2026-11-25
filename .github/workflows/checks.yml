@@ -38,3 +38,19 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Check whitespace
         run: git diff --check
+      - name: Check the desktop Docker build context in the source distribution
+        if: matrix.python == '3.14'
+        run: |
+          python -m pip install build
+          python -m build --sdist
+          python - <<'PY'
+          import pathlib, subprocess, tarfile
+
+          files = [".dockerignore", "winhoo_desktop.py", "LICENSE", "THIRD_PARTY_NOTICES.md"]
+          files += subprocess.check_output(["git", "ls-files", "desktop/"], text=True).splitlines()
+          archive, = pathlib.Path("dist").glob("*.tar.gz")
+          with tarfile.open(archive) as source:
+              for name in files:
+                  with source.extractfile(f"{archive.name[:-7]}/{name}") as member:
+                      assert member.read() == pathlib.Path(name).read_bytes(), name
+          PY
