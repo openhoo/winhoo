@@ -6,7 +6,7 @@ $tokens = $null
 $errors = $null
 $ast = [Management.Automation.Language.Parser]::ParseFile($Installer, [ref]$tokens, [ref]$errors)
 if ($errors.Count) { throw "Guest-tools parser errors: $($errors[0].Message)" }
-foreach ($name in @('Test-SerialDevice', 'Install-SerialDriver')) {
+foreach ($name in @('Test-SerialDevice', 'Install-SerialDriver', 'Remove-OwnedStartup')) {
     $function = $ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name}, $true)
     if ($null -eq $function) { throw "Missing function $name" }
     . ([scriptblock]::Create($function.Extent.Text))
@@ -49,4 +49,15 @@ foreach ($device in @(
     if (Test-SerialDevice) { throw 'Incorrect or unhealthy device was accepted' }
 }
 $passed += 'incorrect hardware and unhealthy device rejected'
+$fixture = Join-Path ([IO.Path]::GetTempPath()) ([Guid]::NewGuid().ToString('N'))
+$template = Join-Path (Split-Path -Parent $Installer) 'WinHoo-GuestTools.cmd'
+try {
+    [IO.File]::WriteAllText($fixture, 'echo preserve this WinHoo customization')
+    Remove-OwnedStartup $fixture $template
+    if (![IO.File]::Exists($fixture)) { throw 'Unrelated startup file was removed' }
+    [IO.File]::WriteAllText($fixture, [IO.File]::ReadAllText($template).Replace("`r`n", "`n").Replace("`n", "`r`n"))
+    Remove-OwnedStartup $fixture $template
+    if ([IO.File]::Exists($fixture)) { throw 'Owned one-time launcher was not removed' }
+} finally { [IO.File]::Delete($fixture) }
+$passed += 'only the exact WinHoo startup launcher is removed'
 [ordered]@{schema='winhoo.guest-tools-fixture/1'; powershell=$PSVersionTable.PSVersion.ToString(); parsed=$Installer; passed=$passed} | ConvertTo-Json -Depth 4

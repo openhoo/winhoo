@@ -112,6 +112,7 @@ class Desktop:
             valid = valid and (label == self.owner or (label is None and self.config["adoptLegacy"]))
             if not valid:
                 raise DesktopError("Existing Windows desktop belongs to another owner or storage root.")
+            return record
         except (ValueError, KeyError, TypeError, IndexError) as exc:
             raise DesktopError("Invalid desktop container metadata; refusing to change it.") from exc
 
@@ -194,18 +195,30 @@ class Desktop:
         if operation not in OPERATIONS:
             raise DesktopError("Unsupported desktop operation.")
         self.assert_engine()
-        self.assert_storage()
+        current = self.assert_storage()
         if operation.startswith('guest-'):
             return self.guest(operation[6:], script=script, timeout=timeout, pid=pid, guest_path=guest_path, max_bytes=max_bytes)
         if operation in ('tools-prepare', 'tools-repair'):
-            return self.prepare_tools(force=operation == 'tools-repair')
+            return self.prepare_tools(current, force=operation == 'tools-repair')
+        if operation in ('up', 'stop', 'down', 'restart'):
+            # Compose selects by project label, even after a container is
+            # renamed. Validate its selection before changing any guest.
+            members = self.command('ps', '--all', '--quiet', '--no-trunc', '--filter',
+                                   'label=com.docker.compose.project=' + self.config['project']).stdout.splitlines()
+            if any(member != (current or {}).get('Id') for member in members):
+                raise DesktopError('Compose project contains another container; refusing to change it.')
+            if current is None and operation in ('down', 'stop'):
+                return 0
+            if current is None and operation == 'restart':
+                raise DesktopError('No existing desktop to restart; use up to start it.')
         if operation == 'up':
-            result = self.prepare_tools()
-            if result:
+            result = self.prepare_tools(current)
+            if result or (current and current.get('State', {}).get('Running')):
+                # Compose up could recreate a running guest after a config
+                # change. Reusing an owned guest must leave its session intact.
                 return result
         if operation in ('stop', 'down', 'restart'):
-            record = self.command('container', 'inspect', self.config['name'], check=False)
-            if record.returncode == 0 and json.loads(record.stdout)[0].get('State', {}).get('Running'):
+            if current.get('State', {}).get('Running'):
                 # The guest agent closes applications using Windows' native
                 # shutdown. If unavailable, the existing ACPI grace still runs.
                 try:
@@ -231,18 +244,48 @@ class Desktop:
                          "/shared/bootstrap/winhoo-owner-heartbeat", self.config["ownerGeneration"])
         return result
 
-    def prepare_tools(self, *, force=False):
+    def storage_users(self, source):
+        if not self.config['legacyBind']:
+            return set(self.command('ps', '--quiet', '--no-trunc', '--filter', 'volume=' + source).stdout.splitlines())
+        # Docker matches the exact bind source or destination in --filter
+        # volume, but misses a parent bind or a directly mounted disk file.
+        ids = self.command('ps', '--quiet', '--no-trunc').stdout.splitlines()
+        if not ids:
+            return set()
+        rows = self.command('container', 'inspect', '--format', '{{.Id}} {{json .Mounts}}', *ids).stdout.splitlines()
+        try:
+            mounts_by_id = {}
+            for row in rows:
+                identity, raw = row.split(' ', 1)
+                mounts_by_id[identity] = json.loads(raw)
+            if set(mounts_by_id) != set(ids):
+                raise ValueError('incomplete inventory')
+            storage = Path(source).resolve()
+            users = set()
+            for identity, mounts in mounts_by_id.items():
+                for mount in mounts:
+                    if mount['Type'] != 'bind':
+                        continue
+                    path = Path(mount['Source'])
+                    if not path.is_absolute():
+                        raise ValueError('invalid mount source')
+                    path = path.resolve()
+                    if path == storage or path in storage.parents or storage in path.parents:
+                        users.add(identity)
+            return users
+        except (ValueError, TypeError, KeyError) as exc:
+            raise DesktopError('Cannot verify active disk mounts; refusing to prepare guest tools.') from exc
+
+    def prepare_tools(self, current, *, force=False):
         # All users of the storage must be stopped, including containers with
         # a different name. This check precedes the helper's writable mount.
         source = self.config['storage'] if self.config['legacyBind'] else self.config['volume']
-        users = self.command('ps', '--quiet', '--no-trunc', '--filter', 'volume=' + source).stdout.strip()
-        if users:
+        users = self.storage_users(source)
+        running = current and current.get('State', {}).get('Running')
+        if users or running:
             # up against an already running owned container is idempotent.
-            record = self.command('container', 'inspect', self.config['name'], check=False)
-            if not force and record.returncode == 0:
-                current = json.loads(record.stdout)[0]
-                if current.get('State', {}).get('Running') and users.splitlines() == [current.get('Id')]:
-                    return 0
+            if not force and running and users == {current.get('Id')}:
+                return 0
             raise DesktopError('Stop every container using the Windows disk before preparing guest tools.')
         image = self.config.get('image', f"winhoo-desktop:{VERSION}-{self.config['architecture']}")
         mount = 'type=' + ('bind' if self.config['legacyBind'] else 'volume') + ',source=' + source + ',target=/storage'

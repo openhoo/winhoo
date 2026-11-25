@@ -11,6 +11,7 @@ from pathlib import Path
 import secrets
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 import time
@@ -19,6 +20,7 @@ TOOLS = Path('/usr/share/winhoo/guest-tools')
 SOCKET = '/run/winhoo-control/qga.sock'
 VERSION = '0.4.0'
 MAX_RESPONSE = 4 * 1024 * 1024
+STARTUP = '/ProgramData/Microsoft/Windows/Start Menu/Programs/StartUp/WinHoo-GuestTools.cmd'
 
 
 class ToolError(RuntimeError):
@@ -112,6 +114,11 @@ def backup_disk(disk: Path, *, sparse=False):
             if backup.stat().st_size != info.st_size:
                 raise ToolError('Incomplete stopped disk backup')
             os.fsync(target.fileno())
+            directory = os.open(disk.parent, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
         except BaseException:
             backup.unlink(missing_ok=True)
             raise
@@ -142,10 +149,14 @@ def write_marker(marker, receipt):
 
 
 def prepare(disk: Path, *, force=False, sparse_backup=False):
-    if not disk.exists() and disk.name == 'data.img' and disk.with_name('windows.img').is_file():
-        disk = disk.with_name('windows.img')
-    if not disk.is_file():
+    if not os.path.lexists(disk) and disk.name == 'data.img':
+        legacy = disk.with_name('windows.img')
+        if os.path.lexists(legacy):
+            disk = legacy
+    if not os.path.lexists(disk):
         return {'status': 'new-disk', 'message': 'Guest tools will install through the generic OEM bootstrap'}
+    if not stat.S_ISREG(disk.lstat().st_mode):
+        raise ToolError('Expected a regular Windows disk file; refusing to follow or replace it')
     marker = disk.parent / '.winhoo-tools.json'
     payload = hashlib.sha256()
     sources = {}
@@ -156,8 +167,12 @@ def prepare(disk: Path, *, force=False, sparse_backup=False):
             sources[source.relative_to(TOOLS).as_posix()] = digest.hexdigest()
             payload.update(digest.digest())
     identity = {'version': VERSION, 'payloadSha256': payload.hexdigest(), 'device': disk.stat().st_dev, 'inode': disk.stat().st_ino, 'bytes': disk.stat().st_size}
-    if marker.is_file() and not force:
-        if json.loads(marker.read_text()).get('disk') == identity:
+    if marker.is_file() and not force and marker.stat().st_size <= 8192:
+        try:
+            cached = json.loads(marker.read_text())
+        except (ValueError, UnicodeError):
+            cached = None
+        if isinstance(cached, dict) and cached.get('disk') == identity:
             return {'status': 'prepared', 'cached': True}
     # libguestfs boots its own Linux appliance with software emulation. It does
     # not need a privileged container, loop devices, FUSE or host disk mounts.
@@ -188,14 +203,17 @@ def prepare(disk: Path, *, force=False, sparse_backup=False):
         if len(windows) != 1:
             raise ToolError('Expected exactly one installed Windows root; disk was not changed')
         root = windows[0]
-        if not force:
-            g.mount_vfs('ro', 'ntfs-3g', root, '/')
-            try:
-                if oem_tools_installed(g, sources):
-                    write_marker(marker, {'disk': identity, 'method': 'verified-oem'})
-                    return {'status': 'prepared', 'method': 'verified-oem'}
-            finally:
-                g.umount_all()
+        g.mount_vfs('ro', 'ntfs-3g', root, '/')
+        try:
+            if not force and oem_tools_installed(g, sources):
+                write_marker(marker, {'disk': identity, 'method': 'verified-oem'})
+                return {'status': 'prepared', 'method': 'verified-oem'}
+            startup_script = (TOOLS / 'WinHoo-GuestTools.cmd').read_text(encoding='ascii').replace('\n', '\r\n').encode('ascii')
+            if g.exists(STARTUP) and (not g.is_file(STARTUP) or g.filesize(STARTUP) != len(startup_script)
+                                      or g.read_file(STARTUP) != startup_script):
+                raise ToolError('Refusing to replace an unrelated startup file; disk was not changed')
+        finally:
+            g.umount_all()
     finally:
         g.close()
     backup = backup_disk(disk, sparse=sparse_backup)
@@ -215,13 +233,8 @@ def prepare(disk: Path, *, force=False, sparse_backup=False):
                 target = destination + '/' + relative
                 g.mkdir_p(str(Path(target).parent))
                 g.upload(str(source), target)
-        startup = '/ProgramData/Microsoft/Windows/Start Menu/Programs/StartUp/WinHoo-GuestTools.cmd'
-        if g.exists(startup):
-            existing = g.read_file(startup)
-            if b'WinHoo' not in existing:
-                raise ToolError('Refusing to replace an unrelated startup file')
-        g.mkdir_p(str(Path(startup).parent))
-        g.write(startup, b'@echo off\r\npowershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File C:\\ProgramData\\WinHoo\\tools\\Install-GuestTools.ps1 >>C:\\ProgramData\\WinHoo\\guest-tools.log 2>&1\r\n')
+        g.mkdir_p(str(Path(STARTUP).parent))
+        g.write(STARTUP, startup_script)
         g.sync()
         g.umount_all()
         g.shutdown()

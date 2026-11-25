@@ -6,7 +6,7 @@ RUN mcs -nologo -target:winexe -optimize+ -out:/WinHoo.RunHidden.exe /src/RunHid
 FROM --platform=linux/amd64 docker.io/dockurr/windows@sha256:32cc92715a6c5dc1f63142d3be11059279d64d0faa7519618a07290b3076f9f2
 COPY desktop/install-host-tools.sh /tmp/winhoo-install-host-tools.sh
 RUN bash /tmp/winhoo-install-host-tools.sh && rm /tmp/winhoo-install-host-tools.sh
-COPY desktop/Install-GuestTools.ps1 desktop/oem-install.bat /usr/share/winhoo/guest-tools/
+COPY desktop/Install-GuestTools.ps1 desktop/WinHoo-GuestTools.cmd desktop/oem-install.bat /usr/share/winhoo/guest-tools/
 COPY --from=launcher /WinHoo.RunHidden.exe /usr/share/winhoo/guest-tools/
 COPY desktop/RunHidden.cs /usr/share/winhoo/guest-tools/
 COPY desktop/entry.sh desktop/guest-tools.py /usr/share/winhoo/

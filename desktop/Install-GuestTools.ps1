@@ -14,6 +14,13 @@ function Test-SerialDevice {
     })
     return $devices.Count -gt 0
 }
+function Remove-OwnedStartup([string]$Path, [string]$Template) {
+    $file = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+    if (!$file -or $file.PSIsContainer -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $file.Length -gt 4096) { return }
+    $expected = [IO.File]::ReadAllText($Template).Replace("`r`n", "`n").Replace("`n", "`r`n")
+    $actual = [IO.File]::ReadAllText($Path)
+    if ($actual -ceq $expected) { Remove-Item -LiteralPath $Path -Force }
+}
 function Install-SerialDriver([string]$DriverPath) {
     if (Test-SerialDevice) {
         [Console]::Out.WriteLine('Reusing the healthy VirtIO serial device')
@@ -77,7 +84,7 @@ try {
     Set-Service -Name QEMU-GA -StartupType Automatic
     Start-Service -Name QEMU-GA
     [IO.File]::WriteAllText($status, (([ordered]@{schema='winhoo.guest-tools/1'; version='0.4.0'; sha256=$expected; installedUtc=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json -Compress) + "`r`n"), [Text.UTF8Encoding]::new($false))
-    if (Test-Path -LiteralPath $startup) { Remove-Item -LiteralPath $startup -Force }
+    Remove-OwnedStartup $startup (Join-Path $PSScriptRoot 'WinHoo-GuestTools.cmd')
     Publish-ToolsStatus 'ready' 'ready'
     [Console]::Out.WriteLine('WinHoo guest tools ready; QEMU-GA uses the private VirtIO serial channel')
     exit 0

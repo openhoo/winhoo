@@ -95,6 +95,11 @@ operations against the configuration. The Linux daemon identity is pinned on
 first use; switching engines fails before lifecycle changes. Published ports
 always bind to loopback.
 
+Repeating `up` preserves an already running desktop session. Lifecycle commands
+reject other containers sharing the Compose project label, including renamed
+guests. For bind disks the offline preparation checks active container mounts
+for parent directories and directly mounted disk files as well as the configured path.
+
 For managed runs, supply a random 32-character lowercase hex `ownerGeneration`.
 The owner atomically renews `shared/bootstrap/winhoo-owner-heartbeat` every five
 seconds with `GENERATION MONOTONICALLY_CHANGING_TICK\n`. WinHoo starts an
@@ -132,6 +137,8 @@ selected the bounded sparse backup described above. The backup is retained along
 disk. `tools-repair` explicitly repeats this preparation after stopping Windows.
 The preparation marker includes the installed payload's SHA-256, so a corrected
 installer invalidates the cache even when the development version is unchanged.
+An unrelated Windows Startup file with the same name is preserved: preparation
+refuses to overwrite it before making any guest changes.
 
 The installer checks the actual VirtIO serial device before touching drivers.
 A healthy existing driver is reused; an absent device receives the pinned

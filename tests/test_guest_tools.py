@@ -171,6 +171,42 @@ class GuestAgentTests(unittest.TestCase):
             self.assertEqual(tools.prepare(Path(root) / 'data.img')['status'], 'new-disk')
             self.assertEqual(list(Path(root).iterdir()), [])
 
+    def test_nonregular_and_dangling_disk_paths_cannot_be_treated_as_fresh(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            disk = Path(temporary) / 'data.img'
+            disk.mkdir()
+            with self.assertRaisesRegex(tools.ToolError, 'regular Windows disk'):
+                tools.prepare(disk)
+            disk.rmdir()
+            disk.with_name('windows.img').symlink_to(Path(temporary) / 'missing')
+            with self.assertRaisesRegex(tools.ToolError, 'regular Windows disk'):
+                tools.prepare(disk)
+
+    def test_foreign_startup_file_is_preserved_before_backup_or_writable_open(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            disk = root / 'data.img'
+            disk.write_bytes(b'unchanged')
+            (root / '.winhoo-tools.json').write_text('{truncated')
+            launcher = Path(__file__).resolve().parents[1] / 'desktop/WinHoo-GuestTools.cmd'
+            script = launcher.read_text().replace('\n', '\r\n').encode('ascii')
+            (root / launcher.name).write_bytes(script)
+            foreign = script.replace(b'@echo off', b'@echo xyz')
+            opened = []
+            guest = SimpleNamespace(set_memsize=lambda n: None, add_drive_opts=lambda *a, **opts: opened.append(opts),
+                launch=lambda: None, list_filesystems=lambda: {'/dev/sda1': 'ntfs'}, mount_vfs=lambda *args: None,
+                case_sensitive_path=lambda p: p, is_file=lambda p: not p.endswith('installed.json'),
+                exists=lambda p: p == tools.STARTUP, filesize=lambda p: len(foreign), read_file=lambda p: foreign,
+                umount_all=lambda: None, close=lambda: None)
+            with patch.object(tools, 'TOOLS', root), patch.dict('sys.modules', {'guestfs': SimpleNamespace(GuestFS=lambda **kw: guest)}):
+                for force in [False, True]:
+                    with self.assertRaisesRegex(tools.ToolError, 'unrelated startup file'):
+                        tools.prepare(disk, force=force)
+            self.assertTrue(all(opts.get('readonly') is True for opts in opened))
+            self.assertEqual(len(opened), 2)
+            self.assertEqual(disk.read_bytes(), b'unchanged')
+            self.assertFalse(list(root.glob('*.backup')))
+
     def test_changed_payload_invalidates_prepared_disk_before_writes(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

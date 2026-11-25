@@ -17,4 +17,5 @@
 !desktop/guest-tools.py
 !desktop/install-host-tools.sh
 !desktop/Install-GuestTools.ps1
+!desktop/WinHoo-GuestTools.cmd
 !desktop/oem-install.bat

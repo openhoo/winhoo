@@ -24,6 +24,8 @@ class DesktopTests(unittest.TestCase):
         self.path = self.root / "desktop.json"
         self.calls = []
         self.record = None
+        self.project_members = []
+        self.active_mounts = {}
         self.engine_error = None
         self.result = 0
         self.info = {"OSType": "linux", "Architecture": "aarch64", "ID": "fixture-engine"}
@@ -32,9 +34,19 @@ class DesktopTests(unittest.TestCase):
         self.calls.append(args)
         if args[1] == "info":
             return subprocess.CompletedProcess(args, 0, json.dumps(self.info), "")
+        if args[1] == 'ps':
+            if any(item.startswith('label=') for item in args):
+                ids = self.project_members
+            elif '--filter' in args:
+                ids = [self.record['Id']] if self.record and self.record['State']['Running'] else []
+            else:
+                ids = self.active_mounts
+            return subprocess.CompletedProcess(args, 0, '\n'.join(ids), '')
         if args[1:3] == ["container", "inspect"]:
             if self.engine_error:
                 return subprocess.CompletedProcess(args, 1, "", self.engine_error)
+            if '--format' in args:
+                return subprocess.CompletedProcess(args, 0, '\n'.join(key + ' ' + json.dumps(mounts) for key, mounts in self.active_mounts.items()), '')
             return subprocess.CompletedProcess(args, 0, json.dumps([self.record]), "") if self.record else subprocess.CompletedProcess(args, 1, "", "No such container")
         return subprocess.CompletedProcess(args, self.result, "", "")
 
@@ -43,7 +55,7 @@ class DesktopTests(unittest.TestCase):
         return Desktop(self.path, runner=self.runner)
 
     def existing(self, desktop, *, owner=True):
-        self.record = {"Mounts": [{"Type": "volume", "Name": "test-volume", "Destination": "/storage"}, {"Type": "bind", "Source": str(self.root / "shared"), "Destination": "/shared"}], "Config": {"Labels": {OWNER: desktop.owner} if owner else {}}}
+        self.record = {"Id": "a" * 64, "State": {"Running": False}, "Mounts": [{"Type": "volume", "Name": "test-volume", "Destination": "/storage"}, {"Type": "bind", "Source": str(self.root / "shared"), "Destination": "/shared"}], "Config": {"Labels": {OWNER: desktop.owner} if owner else {}}}
 
     def test_software_emulation_uses_native_arm_image_and_x64_windows(self):
         desktop = self.desktop()
@@ -142,6 +154,7 @@ class DesktopTests(unittest.TestCase):
         # subprocess boundary so neither wrapper can cut the guest short.
         desktop = self.desktop()
         normal_runner = self.runner
+        self.existing(desktop)
         observed_timeout = []
 
         def slow_shutdown(args, **kwargs):
@@ -170,6 +183,7 @@ class DesktopTests(unittest.TestCase):
 
     def test_cleanup_waits_for_an_in_flight_guest_operation(self):
         desktop = self.desktop()
+        self.existing(desktop)
         observed = []
         with self.path.with_suffix('.lock').open('w') as stream:
             fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -240,6 +254,39 @@ class DesktopTests(unittest.TestCase):
         with self.assertRaisesRegex(DesktopError, 'Stop every container'):
             desktop.run('tools-repair')
         self.assertFalse(any(call[1] == 'run' for call in self.calls))
+
+    def test_bind_parent_and_directly_mounted_disk_are_busy_at_any_destination(self):
+        self.configuration['legacyBind'] = True
+        desktop = self.desktop()
+        for path in [self.root, self.root / 'storage' / 'windows.img']:
+            with self.subTest(path=path):
+                self.active_mounts['b' * 64] = [{'Type': 'bind', 'Source': str(path), 'Destination': '/other'}]
+                with self.assertRaisesRegex(DesktopError, 'Stop every container'):
+                    desktop.run('up')
+        self.assertFalse(any(call[1] in ('compose', 'run') for call in self.calls))
+        self.active_mounts['b' * 64][0]['Source'] = str(self.root / 'unrelated')
+        self.assertEqual(desktop.run('up'), 0)
+
+    def test_up_does_not_reconcile_or_attach_another_watchdog_to_a_running_guest(self):
+        self.configuration['ownerGeneration'] = 'c' * 32
+        desktop = self.desktop()
+        self.existing(desktop)
+        self.record['State']['Running'] = True
+        self.project_members.append(self.record['Id'])
+        self.assertEqual(desktop.run('up'), 0)
+        self.assertFalse(any(call[1] in ('compose', 'exec', 'run') for call in self.calls))
+
+    def test_renamed_or_other_project_members_cannot_be_stopped_or_adopted(self):
+        desktop = self.desktop()
+        self.project_members.append('b' * 64)
+        for operation in ['up', 'down', 'stop', 'restart']:
+            with self.subTest(operation=operation), self.assertRaisesRegex(DesktopError, 'another container'):
+                desktop.run(operation)
+        self.existing(desktop)
+        self.project_members.append(self.record['Id'])
+        with self.assertRaisesRegex(DesktopError, 'another container'):
+            desktop.run('down')
+        self.assertFalse(any(call[1] in ('compose', 'exec', 'run') for call in self.calls))
 
     def test_outer_exec_budget_allows_cold_transport_before_short_process_wait(self):
         desktop = self.desktop()
