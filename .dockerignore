@@ -5,3 +5,16 @@
 !examples/
 !examples/Dockerfile
 !examples/smoke.ps1
+!LICENSE
+!THIRD_PARTY_NOTICES.md
+!winhoo_desktop.py
+!desktop/
+!desktop/Dockerfile.*
+!desktop/RunHidden.cs
+!desktop/runtime.json
+!desktop/owner-watchdog.sh
+!desktop/entry.sh
+!desktop/guest-tools.py
+!desktop/install-host-tools.sh
+!desktop/Install-GuestTools.ps1
+!desktop/oem-install.bat

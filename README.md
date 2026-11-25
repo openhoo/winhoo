@@ -4,6 +4,16 @@ A reusable **native Windows container** for automated software installation and 
 
 Use the container for command-line applications, silent installers, and services. For software that needs an interactive console, `winhoo desktop` runs a separate [Windows 11 ARM64 desktop directly on an Apple Silicon Mac](docs/macos-desktop.md). Its disk stays on the Mac and does not require a container engine or another host.
 
+### Windows desktop in Docker on x64 Linux or WSL2
+
+For a workload that needs real Windows speech and keyboard focus, run a full Windows desktop in Docker with KVM. Build the general WinHoo image from this checkout:
+
+```sh
+docker build --platform linux/amd64 -t winhoo-desktop:0.4.0-amd64 -f desktop/Dockerfile.amd64 .
+```
+
+The image contains the VM host and its controller. The consumer supplies the Windows application and checks its output. The [Docker desktop guide](desktop/README.md) describes retained disks, private ports and guest management. The existing `winhoo desktop` command remains the native macOS backend.
+
 ## What's included
 
 - Windows Server Core LTSC 2022, pinned to an exact Microsoft image digest.

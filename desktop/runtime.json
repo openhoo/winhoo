@@ -1,0 +1,22 @@
+{
+  "schema": "winhoo.desktop-runtime/1",
+  "version": "0.4.0",
+  "kind": "windows-desktop-vm",
+  "controller": "winhoo_desktop.py",
+  "configurationSchema": "winhoo.desktop/1",
+  "arm64Image": "winhoo-desktop:0.4.0-arm64",
+  "amd64Image": "winhoo-desktop:0.4.0-amd64",
+  "controllerBundle": "/usr/share/winhoo/controller",
+  "controllerPython": "3.9+ (standard library only)",
+  "applications": [],
+  "qemuDebianVersion": "1:10.0.13+ds-0+deb13u1",
+  "windowsDriverSource": "x64 /var/drivers.txz, including NetKVM and vioscsi",
+  "readiness": "The caller must authenticate guest/application readiness. Container running is not desktop or application readiness.",
+  "guestTools": {
+    "transport": "private QEMU virtio-serial socket, accessed through the owning engine",
+    "package": "qemu-ga-win-110.2.3-2.el10",
+    "sha256": "19dcf8abc30f70c2eb6e87282601fd0476e4e0b19936f63d9c80be30db0796ed",
+    "offlineRepair": "libguestfs direct TCG with a retained backup; reflink by default, bounded sparse copy by opt-in; stopped disks only",
+    "hiddenLauncher": "C:\\ProgramData\\WinHoo\\tools\\WinHoo.RunHidden.exe"
+  }
+}
