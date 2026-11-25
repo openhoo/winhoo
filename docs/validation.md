@@ -243,3 +243,5 @@ reports, an incorrect source identity and incomplete shutdown.
 ## Windows desktops under Docker/WSL2 (2026-11-25)
 
 On an x64 Windows 11 workstation, WinHoo built the amd64 desktop image with Debian's Docker Engine 26.1.5 in WSL2. Two KVM guests ran at the same time on distinct disks and loopback ports. One guest booted from an independent sparse copy of a stopped Windows disk on ext4: WinHoo retained a backup, installed the guest tools and reached the interactive console. The other downloaded Windows into a new Docker volume and booted the Windows installer. These are checks of the desktop backend. The consumer's speech, braille and browser test results are separate.
+
+Using that amd64 runtime, HooSaidThat 0.1.4 ran its installed NVDA 2026.1.1 package through all 40 English and German desktop and laptop blocks: 52 native reader cases, 40 command-inventory checks and 760 assigned command executions, with no retries. The guest shut down through ACPI and the NTFS volume was clean. JAWS 2027 reached its activation dialog; no testing license was available, so this run did not verify live JAWS speech.

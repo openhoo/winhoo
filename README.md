@@ -6,7 +6,7 @@ Use the container for command-line applications, silent installers, and services
 
 ### Windows desktop in Docker on x64 Linux or WSL2
 
-For a workload that needs real Windows speech and keyboard focus, run a full Windows desktop in Docker with KVM. Build the general WinHoo image from this checkout:
+For a workload that needs real Windows speech and keyboard focus, run a full Windows desktop in Docker with KVM. Build the general WinHoo image from this checkout or the unpacked source archive from [GitHub Releases](https://github.com/openhoo/winhoo/releases):
 
 ```sh
 docker build --platform linux/amd64 -t winhoo-desktop:0.4.0-amd64 -f desktop/Dockerfile.amd64 .
